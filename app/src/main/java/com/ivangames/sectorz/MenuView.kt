@@ -251,4 +251,22 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         running = false
         removeCallbacks(this)
     }
+
+    private fun drawMulti(c: Canvas, w: Float, h: Float) {
+        fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
+        txt(c, "МУЛЬТИПЛЕЕР", w / 2f, h * 0.2f, 34f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
+        txt(c, "Все игроки в одной Wi-Fi сети (или на раздаче телефона)", w / 2f, h * 0.2f + 26f * d, 13f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
+        val bw = min(w * 0.5f, 420f * d)
+        val bh = min(64f * d, h * 0.14f)
+        val g = min(14f * d, h * 0.025f)
+        var y = h * 0.38f
+        mp[0].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+        drawButton(c, mp[0], "СОЗДАТЬ ИГРУ", "ты хост, остальные подключаются к тебе", pressed == 11)
+        y += bh + g
+        mp[1].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+        drawButton(c, mp[1], "ПОДКЛЮЧИТЬСЯ", "ввести IP хоста", pressed == 12)
+        y += bh + g
+        backBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+        drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
+    }
 }

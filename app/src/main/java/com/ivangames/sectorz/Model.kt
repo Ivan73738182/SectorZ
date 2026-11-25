@@ -87,6 +87,7 @@ class Player(x: Float, y: Float, val look: Look) : Ent(x, y) {
 }
 
 class Bot(x: Float, y: Float, val look: Look, val ally: Boolean) : Ent(x, y) {
+    var peer: NetPeer? = null
     var weapon = 3
     var flash = 0f
 }

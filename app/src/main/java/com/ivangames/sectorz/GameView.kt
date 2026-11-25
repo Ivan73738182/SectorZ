@@ -1021,4 +1021,92 @@ for (l in loot) {
         removeCallbacks(this)
         joyId = -1; atkId = -1; joyDx = 0f; joyDy = 0f
     }
+
+    private fun moveAtk(x: Float, y: Float) {
+        val r = atR * 2f
+        var dx = (x - atX) / r
+        var dy = (y - atY) / r
+        val m = hypot(dx, dy)
+        if (m > 1f) { dx /= m; dy /= m }
+        atkDx = dx
+        atkDy = dy
+    }
+
+    fun startNet(mode: Int, ip: String) {
+        if (mode != 2 && mode != 3) return
+        val s = NetSync(this, mode == 3, ip, skin)
+        sync = s
+        if (mode == 3) {
+            zombies.clear(); dogs.clear(); bots.clear(); loot.clear(); bullets.clear(); parts.clear()
+        }
+        s.start()
+    }
+
+    fun stopNet() {
+        sync?.stop()
+    }
+
+    private fun nearHuman(e: Ent): Boolean {
+        if (abs(e.x - player.x) < 1700f && abs(e.y - player.y) < 1700f) return true
+        for (b in bots) {
+            if (b.peer != null && !b.dead && abs(e.x - b.x) < 1700f && abs(e.y - b.y) < 1700f) return true
+        }
+        return false
+    }
+
+    private fun updateRemote(b: Bot, pr: NetPeer, dt: Float) {
+        b.hurtT = max(0f, b.hurtT - dt)
+        b.cool -= dt
+        b.flash -= dt
+        if (b.dead) {
+            b.deadT += dt
+            b.moving = false
+            if (b.deadT > 6f) {
+                b.dead = false
+                b.hp = b.maxHp
+                b.deadT = 0f
+                b.x = player.x
+                b.y = player.y
+            }
+            return
+        }
+        val mag = hypot(pr.jx, pr.jy)
+        b.moving = mag > 0.15f
+        var moveAng = b.angle
+        if (b.moving) {
+            moveAng = atan2(pr.jy, pr.jx)
+            val sp = 175f * min(1f, mag)
+            moveEnt(b, cos(moveAng) * sp * dt, sin(moveAng) * sp * dt)
+            b.walk += dt * (6f + sp * 0.06f)
+        }
+        val aiming = pr.atk && hypot(pr.ax, pr.ay) > 0.3f
+        if (aiming) b.angle = atan2(pr.ay, pr.ax)
+        else if (b.moving) turn(b, moveAng, 14f, dt)
+        val ws = intArrayOf(3, 4, 5)
+        b.weapon = ws[pr.wsel.coerceIn(0, 2)]
+        if (pr.atk && b.cool <= 0f) {
+            fire(b.x, b.y, b.angle, b.weapon, true)
+            b.flash = 0.07f
+            b.cool = W.cd[b.weapon]
+        }
+    }
+
+    private fun updateClientView(dt: Float) {
+        time += dt
+        if (hitFlash > 0f) hitFlash -= dt
+        if (msgT > 0f) msgT -= dt
+        sync?.clientStep(dt, joyDx, joyDy, atkId != -1, atkDx, atkDy)
+        if (player.hp < clientHp - 0.5f) hitFlash = 0.35f
+        clientHp = player.hp
+        if (player.dead && !gameOver) { gameOver = true; overT = 0f }
+        if (!player.dead && gameOver) gameOver = false
+        if (gameOver) overT += dt
+        for (b in buildings) {
+            val inside = player.x > b.x && player.x < b.x + b.w && player.y > b.y && player.y < b.y + b.h - 4f
+            val target = if (inside) 0f else 1f
+            b.roofA += (target - b.roofA) * min(1f, dt * 8f)
+        }
+        camX += (player.x - camX) * min(1f, dt * 10f)
+        camY += (player.y - camY) * min(1f, dt * 10f)
+    }
 }

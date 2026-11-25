@@ -13,13 +13,16 @@ class GameActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val skin = intent.getIntExtra("skin", 0)
         val mode = intent.getIntExtra("mode", 0)
+        val ip = intent.getStringExtra("ip") ?: ""
         v = GameView(this, skin, mode == 1) { finish() }
         setContentView(v)
+        v.startNet(mode, ip)
         hideBars()
     }
 
     override fun onResume() { super.onResume(); v.resume(); hideBars() }
     override fun onPause() { super.onPause(); v.pause() }
+    override fun onDestroy() { v.stopNet(); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) hideBars() }
     override fun onBackPressed() { finish() }
 

@@ -1,9 +1,11 @@
 package com.ivangames.sectorz
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.EditText
 
 class MenuActivity : Activity() {
     private lateinit var v: MenuView
@@ -11,10 +13,33 @@ class MenuActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         v = MenuView(this) { mode, skin ->
-            startActivity(Intent(this, GameActivity::class.java).putExtra("mode", mode).putExtra("skin", skin))
+            if (mode == 3) askIp(skin) else start(mode, skin, "")
         }
         setContentView(v)
         hideBars()
+    }
+
+    private fun start(mode: Int, skin: Int, ip: String) {
+        startActivity(
+            Intent(this, GameActivity::class.java)
+                .putExtra("mode", mode).putExtra("skin", skin).putExtra("ip", ip)
+        )
+    }
+
+    private fun askIp(skin: Int) {
+        val prefs = getSharedPreferences("sectorz", MODE_PRIVATE)
+        val et = EditText(this)
+        et.setText(prefs.getString("ip", "192.168.") ?: "192.168.")
+        AlertDialog.Builder(this)
+            .setTitle("IP хоста (написан внизу экрана у хоста)")
+            .setView(et)
+            .setPositiveButton("Подключиться") { _, _ ->
+                val ip = et.text.toString().trim()
+                prefs.edit().putString("ip", ip).apply()
+                start(3, skin, ip)
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     override fun onResume() { super.onResume(); v.resume(); hideBars() }
