@@ -1122,43 +1122,6 @@ for (l in loot) {
         return false
     }
 
-    private fun updateRemote(b: Bot, pr: NetPeer, dt: Float) {
-        b.hurtT = max(0f, b.hurtT - dt)
-        b.cool -= dt
-        b.flash -= dt
-        if (b.dead) {
-            b.deadT += dt
-            b.moving = false
-            if (b.deadT > 6f) {
-                b.dead = false
-                b.hp = b.maxHp
-                b.deadT = 0f
-                b.x = player.x
-                b.y = player.y
-            }
-            return
-        }
-        val mag = hypot(pr.jx, pr.jy)
-        b.moving = mag > 0.15f
-        var moveAng = b.angle
-        if (b.moving) {
-            moveAng = atan2(pr.jy, pr.jx)
-            val sp = 175f * min(1f, mag)
-            moveEnt(b, cos(moveAng) * sp * dt, sin(moveAng) * sp * dt)
-            b.walk += dt * (6f + sp * 0.06f)
-        }
-        val aiming = pr.atk && hypot(pr.ax, pr.ay) > 0.3f
-        if (aiming) b.angle = atan2(pr.ay, pr.ax)
-        else if (b.moving) turn(b, moveAng, 14f, dt)
-        val ws = intArrayOf(3, 4, 5)
-        b.weapon = ws[pr.wsel.coerceIn(0, 2)]
-        if (pr.atk && b.cool <= 0f) {
-            fire(b.x, b.y, b.angle, b.weapon, true)
-            b.flash = 0.07f
-            b.cool = W.cd[b.weapon]
-        }
-    }
-
     private fun updateClientView(dt: Float) {
         time += dt
         if (hitFlash > 0f) hitFlash -= dt
