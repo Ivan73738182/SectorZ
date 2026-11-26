@@ -28,9 +28,10 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private val btn = Array(3) { RectF() }
     private val cards = Array(4) { RectF() }
     private val backBtn = RectF()
+    private val mp = Array(2) { RectF() }
     private var vig: Paint? = null
     private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ")
-    private val subs = arrayOf("20 ботов-выживших, зомби и собаки", "до 4 игроков  •  сеть скоро", "")
+    private val subs = arrayOf("20 ботов-выживших, зомби и собаки", "по Wi-Fi: до 4 игроков", "")
 
     private fun initWalkers(w: Float, h: Float) {
         val rd = 100f * d
@@ -134,21 +135,21 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         }.also { vig = it }
         c.drawRect(0f, 0f, w, h, v)
 
-        if (screen == 0) drawMain(c, w, h) else drawSettings(c, w, h)
+        if (screen == 0) drawMain(c, w, h) else if (screen == 1) drawSettings(c, w, h) else drawMulti(c, w, h)
     }
 
     private fun drawMain(c: Canvas, w: Float, h: Float) {
         val cx = w * 0.27f
         val ts = min(h * 0.17f, 74f * d)
         p.letterSpacing = 0.08f
-        txt(c, "SECTOR Z", cx, h * 0.22f, ts, 0xFFE53935.toInt(), Paint.Align.CENTER)
+        txt(c, "SECTOR Z", cx, h * 0.19f, ts, 0xFFE53935.toInt(), Paint.Align.CENTER)
         p.letterSpacing = 0f
-        txt(c, "Выживи в заброшенном городе", cx, h * 0.22f + 28f * d, 15f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
+        txt(c, "Выживи в заброшенном городе", cx, h * 0.19f + 28f * d, 15f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
 
         val bw = min(w * 0.38f, 420f * d)
-        val bh = 68f * d
-        val gap = 14f * d
-        var y = h * 0.36f
+        val bh = min(68f * d, h * 0.16f)
+        val gap = min(14f * d, h * 0.025f)
+        var y = h * 0.33f
         for (i in 0..2) {
             btn[i].set(cx - bw / 2f, y, cx + bw / 2f, y + bh)
             drawButton(c, btn[i], labels[i], subs[i], pressed == i)
@@ -192,6 +193,11 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     }
 
     private fun hit(x: Float, y: Float): Int {
+        if (screen == 2) {
+            if (mp[0].contains(x, y)) return 11
+            if (mp[1].contains(x, y)) return 12
+            return if (backBtn.contains(x, y)) 10 else -1
+        }
         if (screen == 1) return if (backBtn.contains(x, y)) 10 else -1
         for (i in 0..2) if (btn[i].contains(x, y)) return i
         for (i in 0..3) if (cards[i].contains(x, y)) return 4 + i
@@ -204,7 +210,9 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
 
     private fun click(id: Int) {
         if (id == 0) { save(); onPlay(0, skin) }
-        else if (id == 1) { save(); onPlay(1, skin) }
+        else if (id == 1) screen = 2
+        else if (id == 11) { save(); onPlay(2, skin) }
+        else if (id == 12) { save(); onPlay(3, skin) }
         else if (id == 2) screen = 1
         else if (id in 4..7) { skin = id - 4; save() }
         else if (id == 10) screen = 0
@@ -224,7 +232,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     }
 
     fun back(): Boolean {
-        if (screen == 1) { screen = 0; return true }
+        if (screen != 0) { screen = 0; return true }
         return false
     }
 

@@ -23,13 +23,13 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     private val props = ArrayList<Prop>()
     private val buildings = ArrayList<Building>()
     private val decals = ArrayList<Decal>()
-    private val loot = ArrayList<Loot>()
-    private val zombies = ArrayList<Zombie>()
-    private val dogs = ArrayList<Dog>()
-    private val bots = ArrayList<Bot>()
-    private val bullets = ArrayList<Bullet>()
+    val loot = ArrayList<Loot>()
+    val zombies = ArrayList<Zombie>()
+    val dogs = ArrayList<Dog>()
+    val bots = ArrayList<Bot>()
+    val bullets = ArrayList<Bullet>()
     private val parts = ArrayList<Particle>()
-    private lateinit var player: Player
+    lateinit var player: Player
 
     private var running = false
     private var last = 0L
@@ -42,6 +42,10 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     private var msgT = 0f
     private var gameOver = false
     private var overT = 0f
+    private var atkDx = 0f
+    private var atkDy = 0f
+    var sync: NetSync? = null
+    private var clientHp = 100f
 
     private var joyId = -1
     private var joyBX = 0f
@@ -376,6 +380,8 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     }
 
     private fun nextWeapon() {
+        val sy = sync
+        if (sy != null && sy.client) { sy.cycleWeapon(); return }
         val p = player
         if (p.dead) return
         var i = p.weapon
@@ -424,7 +430,7 @@ val by = e.y
 
     private fun updateMonster(e: Ent, dt: Float, speed: Float, detect: Float, dmg: Float, atkDur: Float, cdT: Float, reachExtra: Float) {
         if (e.dead) { e.deadT += dt; return }
-        if (abs(e.x - player.x) > 1700f || abs(e.y - player.y) > 1700f) return
+        if (!nearHuman(e)) return
         e.hurtT = max(0f, e.hurtT - dt)
         e.cool -= dt
         var tgt: Ent? = null
@@ -476,6 +482,8 @@ val by = e.y
     }
 
     private fun updateBot(b: Bot, dt: Float) {
+        val pr = b.peer
+        if (pr != null) { updateRemote(b, pr, dt); return }
         b.hurtT = max(0f, b.hurtT - dt)
         b.cool -= dt
         b.flash -= dt
@@ -483,10 +491,10 @@ val by = e.y
         val en = nearestEnemy(b.x, b.y, 440f)
         if (en != null) {
             val ang = atan2(en.y - b.y, en.x - b.x)
-            turn(b, ang, 16f, dt)
+            turn(b, ang, 4f, dt)
             val dist = hypot(en.x - b.x, en.y - b.y)
-            if (b.cool <= 0f && abs(normAng(ang - b.angle)) < 0.2f) {
-                fire(b.x, b.y, b.angle, b.weapon, false)
+            if (b.cool <= 0f && abs(normAng(ang - b.angle)) < 0.12f) {
+                fire(b.x, b.y, b.angle + (rnd.nextFloat() - 0.5f) * 0.3f, b.weapon, false)
                 b.flash = 0.07f
                 b.cool = W.cd[b.weapon] * (if (b.weapon == 3) 2.4f else 1.8f)
             }
@@ -547,14 +555,12 @@ val by = e.y
             p.walk += dt * (6f + sp * 0.06f)
         }
         val atk = atkId != -1
-        var tgt: Ent? = null
-        if (atk) tgt = nearestEnemy(p.x, p.y, if (W.isGun(p.weapon)) 650f else 120f)
-        if (tgt != null) turn(p, atan2(tgt.y - p.y, tgt.x - p.x), 25f, dt)
+        val aiming = atk && hypot(atkDx, atkDy) > 0.3f
+        if (aiming) p.angle = atan2(atkDy, atkDx)
         else if (p.moving) turn(p, moveAng, 14f, dt)
         if (atk && p.cool <= 0f && p.atkT < 0f) {
             if (W.isGun(p.weapon)) {
                 if (p.ammo > 0) {
-                    if (tgt != null) p.angle = atan2(tgt.y - p.y, tgt.x - p.x)
                     fire(p.x, p.y, p.angle, p.weapon, true)
                     p.ammo--
                     p.cool = W.cd[p.weapon]
@@ -564,7 +570,6 @@ val by = e.y
                     say("Нет патронов!")
                 }
             } else {
-                if (tgt != null) p.angle = atan2(tgt.y - p.y, tgt.x - p.x)
                 p.atkT = 0f
                 p.atkHit = false
                 p.cool = W.cd[p.weapon]
@@ -653,6 +658,8 @@ val by = e.y
     }
 
     private fun update(dt: Float) {
+        if (sync?.client == true) { updateClientView(dt); return }
+        sync?.hostStep(dt)
         time += dt
         if (hitFlash > 0f) hitFlash -= dt
         if (msgT > 0f) msgT -= dt
@@ -665,7 +672,7 @@ val by = e.y
         updateLoot(dt)
         zombies.removeAll { it.dead && it.deadT > 10f }
         dogs.removeAll { it.dead && it.deadT > 10f }
-        bots.removeAll { it.dead && it.deadT > 15f }
+        bots.removeAll { it.dead && it.deadT > 15f && it.peer == null }
         spawnT += dt
         if (spawnT > 2.5f) {
             spawnT = 0f
@@ -697,8 +704,8 @@ val by = e.y
         atX = fw - 120f * d
         atY = fh - 110f * d
         swR = 38f * d
-        swX = atX - 20f * d
-        swY = atY - 150f * d
+        swX = atX - 145f * d
+        swY = atY + 5f * d
     }
 
     override fun onDraw(c: Canvas) {
@@ -840,6 +847,7 @@ for (l in loot) {
         val pm = if (player.dead) 2 else if (player.hurtT > 0f) 1 else 0
         Sprites.human(c, player.look, player.angle, player.walk, player.moving, player.atkT, player.flash, player.weapon, pm)
         c.restore()
+        if (atkId != -1) c.drawLine(player.x, player.y, player.x + cos(player.angle) * 240f, player.y + sin(player.angle) * 240f, strokeP(0x55FF5252, 2f))
         for (b in bullets) {
             c.drawLine(b.x, b.y, b.x - b.vx * 0.025f, b.y - b.vy * 0.025f, strokeP(0xFFFFE680.toInt(), 3f))
         }
@@ -904,6 +912,10 @@ for (l in loot) {
         txt(c, "Выжившие: " + alive + "/20", bx, ty, 14f * d, 0xFFC8E6C9.toInt(), Paint.Align.LEFT)
         if (msgT > 0f) txt(c, msg, w / 2f, 56f * d, 18f * d, 0xFFFFEB3B.toInt(), Paint.Align.CENTER)
         drawMini(c, w)
+        val st = sync?.status
+        if (!st.isNullOrEmpty()) txt(c, st, w / 2f, h * 0.5f, 22f * d, 0xFFFFEB3B.toInt(), Paint.Align.CENTER)
+        val inf = sync?.info()
+        if (!inf.isNullOrEmpty()) txt(c, inf, w / 2f, h - 14f * d, 13f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
 
         if (joyId != -1) {
             c.drawCircle(joyBX, joyBY, 70f * d, fillP(0x22FFFFFF))
@@ -915,6 +927,7 @@ for (l in loot) {
         val pressed = atkId != -1
         c.drawCircle(atX, atY, atR, fillP(if (pressed) 0xCCE53935.toInt() else 0x88E53935.toInt()))
         c.drawCircle(atX, atY, atR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+        if (atkId != -1) c.drawCircle(atX + atkDx * atR * 2f, atY + atkDy * atR * 2f, 16f * d, fillP(0xCCFFFFFF.toInt()))
         txt(c, if (W.isGun(p.weapon)) "ОГОНЬ" else "УДАР", atX, atY + 6f * d, 17f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
         c.drawCircle(swX, swY, swR, fillP(0x88455A64.toInt()))
         c.drawCircle(swX, swY, swR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
@@ -953,7 +966,7 @@ for (l in loot) {
             }
         } else {
             if (hypot(x - swX, y - swY) < swR * 1.4f) nextWeapon()
-            else if (atkId == -1 && hypot(x - atX, y - atY) < atR * 1.5f) atkId = id
+            else if (atkId == -1 && hypot(x - atX, y - atY) < atR * 1.5f) { atkId = id; atkDx = 0f; atkDy = 0f }
         }
     }
 
@@ -971,7 +984,7 @@ for (l in loot) {
 
     private fun release(id: Int) {
         if (id == joyId) { joyId = -1; joyDx = 0f; joyDy = 0f }
-        if (id == atkId) atkId = -1
+        if (id == atkId) { atkId = -1; atkDx = 0f; atkDy = 0f }
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -983,6 +996,7 @@ for (l in loot) {
             MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until e.pointerCount) {
                     if (e.getPointerId(i) == joyId) moveJoy(e.getX(i), e.getY(i))
+                    if (e.getPointerId(i) == atkId) moveAtk(e.getX(i), e.getY(i))
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
