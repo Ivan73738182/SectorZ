@@ -46,6 +46,23 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     private var atkDy = 0f
     var sync: NetSync? = null
     private var clientHp = 100f
+    private var uiMode = 0
+    private var editOnly = false
+    private var selEl = -1
+    private var dragging = false
+    private var dragDx = 0f
+    private var dragDy = 0f
+    private var joyFixed = false
+    private var joyHX = 0f
+    private var joyHY = 0f
+    private var joyR = 70f
+    private val cxs = FloatArray(3)
+    private val cys = FloatArray(3)
+    private val css = floatArrayOf(1f, 1f, 1f)
+    private val uiR = Array(6) { RectF() }
+    private var mbX = 0f
+    private var mbY = 0f
+    private var mbR = 0f
 
     private var joyId = -1
     private var joyBX = 0f
@@ -94,7 +111,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         c.drawText(s, x, y, tp)
     }
 
-    private fun say(s: String) { msg = s; msgT = 2f }
+    fun say(s: String) { msg = s; msgT = 2f }
 
     // ---------- карта ----------
 
@@ -324,7 +341,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         return best
     }
 
-    private fun hitEnemy(e: Ent, dmg: Float, ang: Float, byPlayer: Boolean) {
+    private fun hitEnemy(e: Ent, dmg: Float, ang: Float, byPlayer: Boolean, owner: Ent? = null) {
         if (e.dead) return
         e.hp -= dmg
         e.hurtT = 0.15f
@@ -334,7 +351,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
             e.dead = true
             e.deadT = 0f
             e.atkT = -1f
-            if (byPlayer) player.kills++
+            if (owner is Bot) owner.kills++ else if (byPlayer) player.kills++
             splat(e.x, e.y, ang, 10, 0xFF6B1010.toInt())
         }
     }
@@ -353,12 +370,12 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         }
     }
 
-    private fun fire(x: Float, y: Float, ang: Float, w: Int, mine: Boolean) {
+    private fun fire(x: Float, y: Float, ang: Float, w: Int, mine: Boolean, owner: Ent? = null) {
         val a = ang + (rnd.nextFloat() - 0.5f) * 2f * W.spread[w]
         val sx = x + cos(ang) * (W.gunLen[w] + 10f)
         val sy = y + sin(ang) * (W.gunLen[w] + 10f)
         val sp = 1500f
-        bullets.add(Bullet(sx, sy, cos(a) * sp, sin(a) * sp, W.dmg[w], if (w == 5) 0.7f else 0.5f, mine))
+        bullets.add(Bullet(sx, sy, cos(a) * sp, sin(a) * sp, W.dmg[w], if (w == 5) 0.7f else 0.5f, mine).also { it.owner = owner })
     }
 
     private fun meleeCheck(p: Player, e: Ent, rng: Float, dmg: Float) {
@@ -483,7 +500,7 @@ val by = e.y
 
     private fun updateBot(b: Bot, dt: Float) {
         val pr = b.peer
-        if (pr != null) { updateRemote(b, pr, dt); return }
+        if (pr != null) { updateRemote2(b, pr, dt); return }
         b.hurtT = max(0f, b.hurtT - dt)
         b.cool -= dt
         b.flash -= dt
@@ -621,7 +638,7 @@ val by = e.y
                 } else {
                     val hit = hitTest(b)
                     if (hit != null) {
-                        hitEnemy(hit, b.dmg, atan2(b.vy, b.vx), b.mine)
+                        hitEnemy(hit, b.dmg, atan2(b.vy, b.vx), b.mine, b.owner)
                         remove = true
                     }
                 }
@@ -658,8 +675,10 @@ val by = e.y
     }
 
     private fun update(dt: Float) {
+        if (uiMode != 0 && sync == null) return
         if (sync?.client == true) { updateClientView(dt); return }
         sync?.hostStep(dt)
+        reviveHost()
         time += dt
         if (hitFlash > 0f) hitFlash -= dt
         if (msgT > 0f) msgT -= dt
@@ -706,6 +725,7 @@ val by = e.y
         swR = 38f * d
         swX = atX - 145f * d
         swY = atY + 5f * d
+        initLayout(fw, fh)
     }
 
     override fun onDraw(c: Canvas) {
@@ -727,6 +747,7 @@ val by = e.y
         if (v != null) c.drawRect(0f, 0f, w, h, v)
         if (hitFlash > 0f) c.drawColor(Color.argb(min(160, (hitFlash * 400f).toInt()), 200, 0, 0))
         drawHud(c, w, h)
+        drawUi(c, w, h)
     }
 
     private fun vis(e: Ent, x0: Float, y0: Float, x1: Float, y1: Float): Boolean =
@@ -751,7 +772,7 @@ val by = e.y
     private fun drawBot(c: Canvas, b: Bot) {
         c.save()
         c.translate(b.x, b.y)
-        Sprites.human(c, b.look, b.angle, b.walk, b.moving, -1f, b.flash, b.weapon, if (b.dead) 2 else if (b.hurtT > 0f) 1 else 0)
+        Sprites.human(c, b.look, b.angle, b.walk, b.moving, b.atkT, b.flash, b.weapon, if (b.dead) 2 else if (b.hurtT > 0f) 1 else 0)
         c.restore()
     }
 
@@ -895,7 +916,7 @@ for (l in loot) {
     private fun drawHud(c: Canvas, w: Float, h: Float) {
         val p = player
         val bx = 16f * d
-        val by = 14f * d
+        val by = 60f * d
         val bw = 190f * d
         val bh = 18f * d
         rf.set(bx, by, bx + bw, by + bh)
@@ -910,6 +931,13 @@ for (l in loot) {
         ty += 19f * d
         val alive = bots.count { !it.dead && !it.ally }
         txt(c, "Выжившие: " + alive + "/20", bx, ty, 14f * d, 0xFFC8E6C9.toInt(), Paint.Align.LEFT)
+        val bd = sync?.board
+        if (bd != null) {
+            for (ln in bd) {
+                ty += 17f * d
+                txt(c, ln, bx, ty, 12f * d, 0xFFB3E5FC.toInt(), Paint.Align.LEFT)
+            }
+        }
         if (msgT > 0f) txt(c, msg, w / 2f, 56f * d, 18f * d, 0xFFFFEB3B.toInt(), Paint.Align.CENTER)
         drawMini(c, w)
         val st = sync?.status
@@ -918,11 +946,11 @@ for (l in loot) {
         if (!inf.isNullOrEmpty()) txt(c, inf, w / 2f, h - 14f * d, 13f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
 
         if (joyId != -1) {
-            c.drawCircle(joyBX, joyBY, 70f * d, fillP(0x22FFFFFF))
-            c.drawCircle(joyBX, joyBY, 70f * d, strokeP(0x66FFFFFF, 2f * d))
-            c.drawCircle(joyCX, joyCY, 30f * d, fillP(0x88FFFFFF.toInt()))
+            c.drawCircle(joyBX, joyBY, joyR, fillP(0x22FFFFFF))
+            c.drawCircle(joyBX, joyBY, joyR, strokeP(0x66FFFFFF, 2f * d))
+            c.drawCircle(joyCX, joyCY, joyR * 0.43f, fillP(0x88FFFFFF.toInt()))
         } else {
-            c.drawCircle(120f * d, h - 120f * d, 60f * d, strokeP(0x33FFFFFF, 2f * d))
+            c.drawCircle(joyHX, joyHY, joyR * 0.86f, strokeP(0x33FFFFFF, 2f * d))
         }
         val pressed = atkId != -1
         c.drawCircle(atX, atY, atR, fillP(if (pressed) 0xCCE53935.toInt() else 0x88E53935.toInt()))
@@ -933,7 +961,12 @@ for (l in loot) {
         c.drawCircle(swX, swY, swR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
         txt(c, "СМЕНА", swX, swY + 4f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
 
-        if (gameOver && overT > 0.8f) {
+        if (gameOver && sync != null) {
+            c.drawColor(Color.argb(min(170, (overT * 300f).toInt()), 0, 0, 0))
+            txt(c, "ВЫ ПОГИБЛИ", w / 2f, h * 0.38f, 40f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
+            txt(c, "Возрождение через " + max(0, (6f - overT).toInt() + 1) + " с", w / 2f, h * 0.38f + 34f * d, 18f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        }
+        if (gameOver && overT > 0.8f && sync == null) {
             c.drawColor(Color.argb(min(190, ((overT - 0.8f) * 300f).toInt()), 0, 0, 0))
             txt(c, "ВЫ ПОГИБЛИ", w / 2f, h * 0.33f, 46f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
             txt(c, "Убито зомби и собак: " + p.kills, w / 2f, h * 0.33f + 36f * d, 18f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
@@ -951,6 +984,26 @@ for (l in loot) {
     // ---------- управление ----------
 
     private fun down(id: Int, x: Float, y: Float) {
+        if (hypot(x - mbX, y - mbY) < mbR * 1.5f) { openUi(1); return }
+        if (!gameOver) {
+            if (hypot(x - swX, y - swY) < swR * 1.4f) { nextWeapon(); return }
+            if (atkId == -1 && hypot(x - atX, y - atY) < atR * 1.5f) { atkId = id; atkDx = 0f; atkDy = 0f; return }
+            if (joyId == -1) {
+                if (joyFixed) {
+                    if (hypot(x - joyHX, y - joyHY) < joyR * 1.8f) {
+                        joyId = id
+                        joyBX = joyHX; joyBY = joyHY; joyCX = joyHX; joyCY = joyHY
+                        joyDx = 0f; joyDy = 0f
+                        moveJoy(x, y)
+                    }
+                } else if (x < width * 0.5f) {
+                    joyId = id
+                    joyBX = x; joyBY = y; joyCX = x; joyCY = y
+                    joyDx = 0f; joyDy = 0f
+                }
+            }
+            return
+        }
         if (gameOver) {
             if (overT > 1f) {
                 if (retryR.contains(x, y)) reset()
@@ -971,7 +1024,7 @@ for (l in loot) {
     }
 
     private fun moveJoy(x: Float, y: Float) {
-        val r = 70f * d
+        val r = joyR
         var dx = x - joyBX
         var dy = y - joyBY
         val m = hypot(dx, dy)
@@ -988,6 +1041,7 @@ for (l in loot) {
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (uiMode != 0) return uiTouch(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = e.actionIndex
@@ -1109,6 +1163,18 @@ for (l in loot) {
         time += dt
         if (hitFlash > 0f) hitFlash -= dt
         if (msgT > 0f) msgT -= dt
+        val pm = hypot(joyDx, joyDy)
+        player.moving = pm > 0.15f && !player.dead
+        if (player.moving) {
+            val ma = atan2(joyDy, joyDx)
+            val msp = 175f * min(1f, pm)
+            moveEnt(player, cos(ma) * msp * dt, sin(ma) * msp * dt)
+            player.walk += dt * (6f + msp * 0.06f)
+        }
+        if (!player.dead) {
+            if (atkId != -1 && hypot(atkDx, atkDy) > 0.3f) player.angle = atan2(atkDy, atkDx)
+            else if (player.moving) turn(player, atan2(joyDy, joyDx), 14f, dt)
+        }
         sync?.clientStep(dt, joyDx, joyDy, atkId != -1, atkDx, atkDy)
         if (player.hp < clientHp - 0.5f) hitFlash = 0.35f
         clientHp = player.hp
@@ -1123,4 +1189,352 @@ for (l in loot) {
         camX += (player.x - camX) * min(1f, dt * 10f)
         camY += (player.y - camY) * min(1f, dt * 10f)
     }
+
+
+    // ===== гости по сети =====
+
+    private fun reviveHost() {
+        val s = sync
+        if (s != null && !s.client && player.dead && player.deadT > 6f) {
+            player.dead = false
+            player.hp = player.maxHp
+            player.deadT = 0f
+            player.x = 2460f
+            player.y = 2460f
+            player.cool = 0f
+            player.atkT = -1f
+            gameOver = false
+            overT = 0f
+        }
+    }
+
+    private fun reviveBot(b: Bot) {
+        b.dead = false
+        b.hp = b.maxHp
+        b.deadT = 0f
+        b.atkT = -1f
+        b.x = player.x
+        b.y = player.y
+    }
+
+    private fun meleeCheckBot(b: Bot, e: Ent, rng: Float, dmg: Float) {
+        if (e.dead) return
+        val dx = e.x - b.x
+        val dy = e.y - b.y
+        val dist = hypot(dx, dy)
+        if (dist > rng + e.r) return
+        if (abs(normAng(atan2(dy, dx) - b.angle)) > 1.2f) return
+        hitEnemy(e, dmg, atan2(dy, dx), true, b)
+    }
+
+    private fun meleeHitBot(b: Bot) {
+        val rng = W.range[b.weapon]
+        val dmg = W.dmg[b.weapon]
+        for (z in zombies) meleeCheckBot(b, z, rng, dmg)
+        for (g in dogs) meleeCheckBot(b, g, rng, dmg)
+    }
+
+    private fun cycleBot(b: Bot) {
+        var i = b.weapon
+        for (k in 0 until 6) {
+            i = (i + 1) % 6
+            if (b.owned[i]) { b.weapon = i; break }
+        }
+        b.atkT = -1f
+    }
+
+    private fun pickupBot(b: Bot, l: Loot): Boolean {
+        return when (l.type) {
+            0 -> {
+                val n = 12 + rnd.nextInt(14)
+                b.ammo += n
+                b.say("+" + n + " патронов")
+                true
+            }
+            1 -> {
+                if (b.hp >= b.maxHp) {
+                    false
+                } else {
+                    b.hp = min(b.maxHp, b.hp + 40f)
+                    b.say("Аптечка +40")
+                    true
+                }
+            }
+            else -> {
+                val id = l.id
+                if (b.owned[id]) {
+                    if (id >= 3) { b.ammo += 15; b.say("+15 патронов"); true } else { false }
+                } else {
+                    b.owned[id] = true
+                    b.weapon = id
+                    if (id >= 3) b.ammo += 12
+                    b.say("Найдено: " + W.names[id])
+                    true
+                }
+            }
+        }
+    }
+
+    private fun updateRemote2(b: Bot, pr: NetPeer, dt: Float) {
+        b.hurtT = max(0f, b.hurtT - dt)
+        b.cool -= dt
+        b.flash -= dt
+        if (b.dead) {
+            b.deadT += dt
+            b.moving = false
+            b.atkT = -1f
+            if (b.deadT > 6f) reviveBot(b)
+            return
+        }
+        val mag = hypot(pr.jx, pr.jy)
+        b.moving = mag > 0.15f
+        var moveAng = b.angle
+        if (b.moving) {
+            moveAng = atan2(pr.jy, pr.jx)
+            val sp = 175f * min(1f, mag)
+            moveEnt(b, cos(moveAng) * sp * dt, sin(moveAng) * sp * dt)
+            b.walk += dt * (6f + sp * 0.06f)
+        }
+        val aiming = pr.atk && hypot(pr.ax, pr.ay) > 0.3f
+        if (aiming) b.angle = atan2(pr.ay, pr.ax)
+        else if (b.moving) turn(b, moveAng, 14f, dt)
+        if (pr.swSeq != pr.lastSw) { pr.lastSw = pr.swSeq; cycleBot(b) }
+        if (pr.atk && b.cool <= 0f && b.atkT < 0f) {
+            if (W.isGun(b.weapon)) {
+                if (b.ammo > 0) {
+                    fire(b.x, b.y, b.angle, b.weapon, true, b)
+                    b.ammo--
+                    b.cool = W.cd[b.weapon]
+                    b.flash = 0.07f
+                } else {
+                    b.cool = 0.5f
+                    b.say("Нет патронов!")
+                }
+            } else {
+                b.atkT = 0f
+                b.atkHit = false
+                b.cool = W.cd[b.weapon]
+            }
+        }
+        if (b.atkT >= 0f) {
+            b.atkT += dt / 0.28f
+            if (!b.atkHit && b.atkT >= 0.5f) { b.atkHit = true; meleeHitBot(b) }
+            if (b.atkT >= 1f) b.atkT = -1f
+        }
+        val it = loot.iterator()
+        while (it.hasNext()) {
+            val l = it.next()
+            if (abs(l.x - b.x) > 30f || abs(l.y - b.y) > 30f) continue
+            if (pickupBot(b, l)) it.remove()
+        }
+    }
+
+    // ===== раскладка управления =====
+
+    private fun defaultLayout(fw: Float, fh: Float) {
+        cxs[0] = 120f * d / fw
+        cys[0] = 1f - 120f * d / fh
+        css[0] = 1f
+        cxs[1] = 1f - 120f * d / fw
+        cys[1] = 1f - 110f * d / fh
+        css[1] = 1f
+        cxs[2] = cxs[1] - 145f * d / fw
+        cys[2] = cys[1] + 5f * d / fh
+        css[2] = 1f
+    }
+
+    private fun initLayout(fw: Float, fh: Float) {
+        defaultLayout(fw, fh)
+        val pf = context.getSharedPreferences("sectorz", Context.MODE_PRIVATE)
+        if (pf.contains("c1x")) {
+            for (i in 0..2) {
+                cxs[i] = pf.getFloat("c" + i + "x", cxs[i])
+                cys[i] = pf.getFloat("c" + i + "y", cys[i])
+                css[i] = pf.getFloat("c" + i + "s", css[i])
+            }
+            joyFixed = pf.getBoolean("joyFixed", false)
+        }
+        applyLayout()
+    }
+
+    private fun applyLayout() {
+        val fw = width.toFloat()
+        val fh = height.toFloat()
+        joyHX = cxs[0] * fw
+        joyHY = cys[0] * fh
+        joyR = 70f * d * css[0]
+        atX = cxs[1] * fw
+        atY = cys[1] * fh
+        atR = 62f * d * css[1]
+        swX = cxs[2] * fw
+        swY = cys[2] * fh
+        swR = 38f * d * css[2]
+        mbX = 36f * d
+        mbY = 36f * d
+        mbR = 22f * d
+    }
+
+    private fun ctlSave() {
+        val ed = context.getSharedPreferences("sectorz", Context.MODE_PRIVATE).edit()
+        for (i in 0..2) {
+            ed.putFloat("c" + i + "x", cxs[i])
+            ed.putFloat("c" + i + "y", cys[i])
+            ed.putFloat("c" + i + "s", css[i])
+        }
+        ed.putBoolean("joyFixed", joyFixed)
+        ed.apply()
+    }
+
+    private fun scaleSel(delta: Float) {
+        if (selEl >= 0) {
+            css[selEl] = (css[selEl] + delta).coerceIn(0.6f, 1.8f)
+            applyLayout()
+            ctlSave()
+        }
+    }
+
+    // ===== меню в игре и кастомизация =====
+
+    fun openEditor() {
+        editOnly = true
+        uiMode = 3
+        selEl = -1
+    }
+
+    private fun openUi(m: Int) {
+        uiMode = m
+        joyId = -1
+        atkId = -1
+        joyDx = 0f
+        joyDy = 0f
+        atkDx = 0f
+        atkDy = 0f
+    }
+
+    fun back(): Boolean {
+        if (uiMode == 0) openUi(1)
+        else if (uiMode == 1) uiMode = 0
+        else if (uiMode == 2) uiMode = 1
+        else {
+            ctlSave()
+            if (editOnly) onExit() else uiMode = 2
+        }
+        return true
+    }
+
+    private fun uiBtn(c: Canvas, r: RectF, label: String, hot: Boolean, ts: Float = 17f) {
+        rf.set(r)
+        c.drawRoundRect(rf, 12f * d, 12f * d, fillP(if (hot) 0xFFB71C1C.toInt() else 0xEE263238.toInt()))
+        c.drawRoundRect(rf, 12f * d, 12f * d, strokeP(0xFFE53935.toInt(), 2f * d))
+        txt(c, label, r.centerX(), r.centerY() + ts * 0.35f * d, ts * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+    }
+
+    private fun drawEditor(c: Canvas, w: Float, h: Float) {
+        c.drawColor(0xAA000000.toInt())
+        val names = arrayOf("ДЖОЙСТИК", "ОГОНЬ", "СМЕНА")
+        val rads = floatArrayOf(joyR, atR, swR)
+        val xs = floatArrayOf(joyHX, atX, swX)
+        val ys = floatArrayOf(joyHY, atY, swY)
+        for (i in 0..2) {
+            val sel = i == selEl
+            c.drawCircle(xs[i], ys[i], rads[i], fillP(if (sel) 0x66FFA000 else 0x55FFFFFF))
+            c.drawCircle(xs[i], ys[i], rads[i], strokeP(if (sel) 0xFFFFA000.toInt() else 0xAAFFFFFF.toInt(), (if (sel) 4f else 2f) * d))
+            txt(c, names[i], xs[i], ys[i] + 5f * d, 13f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        }
+        val bwid = min(120f * d, (w - 40f * d) / 5f)
+        val bhh = 44f * d
+        val x0 = w / 2f - bwid * 2.5f
+        val labels = arrayOf("-", "+", "СБРОС", if (joyFixed) "ДЖОЙ: ФИКС." else "ДЖОЙ: ПЛАВ.", "ГОТОВО")
+        for (i in 0..4) {
+            uiR[i].set(x0 + i * bwid + 3f * d, 14f * d, x0 + (i + 1) * bwid - 3f * d, 14f * d + bhh)
+            uiBtn(c, uiR[i], labels[i], false, 14f)
+        }
+        val hint = if (selEl < 0) "Нажми на элемент и тяни, чтобы передвинуть" else "Размер: " + (css[selEl] * 100f).toInt() + "%   (кнопки - и +)"
+        txt(c, hint, w / 2f, 14f * d + bhh + 22f * d, 14f * d, 0xFFFFEB3B.toInt(), Paint.Align.CENTER)
+    }
+
+    private fun drawUi(c: Canvas, w: Float, h: Float) {
+        if (uiMode == 0) {
+            c.drawCircle(mbX, mbY, mbR, fillP(0x99000000.toInt()))
+            c.drawCircle(mbX, mbY, mbR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+            val lw = mbR * 0.55f
+            for (k in -1..1) {
+                c.drawLine(mbX - lw, mbY + k * mbR * 0.32f, mbX + lw, mbY + k * mbR * 0.32f, strokeP(0xFFFFFFFF.toInt(), 2.5f * d))
+            }
+            return
+        }
+        if (uiMode == 3) { drawEditor(c, w, h); return }
+        c.drawColor(0xBB000000.toInt())
+        val bw = min(w * 0.5f, 380f * d)
+        val bh = min(60f * d, h * 0.14f)
+        val gp = min(14f * d, h * 0.03f)
+        val n = if (uiMode == 1) 3 else 2
+        var y = h / 2f - (n * bh + (n - 1) * gp) / 2f + 10f * d
+        txt(c, if (uiMode == 1) "МЕНЮ" else "НАСТРОЙКИ", w / 2f, y - 18f * d, 30f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
+        val labels = if (uiMode == 1) arrayOf("ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "ВЫЙТИ") else arrayOf("КАСТОМИЗАЦИЯ УПРАВЛЕНИЯ", "НАЗАД", "")
+        for (i in 0 until n) {
+            uiR[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+            uiBtn(c, uiR[i], labels[i], false)
+            y += bh + gp
+        }
+    }
+
+    private fun uiPress(x: Float, y: Float) {
+        if (uiMode == 1) {
+            if (uiR[0].contains(x, y)) uiMode = 0
+            else if (uiR[1].contains(x, y)) uiMode = 2
+            else if (uiR[2].contains(x, y)) onExit()
+        } else if (uiMode == 2) {
+            if (uiR[0].contains(x, y)) { uiMode = 3; selEl = -1 }
+            else if (uiR[1].contains(x, y)) uiMode = 1
+        } else if (uiMode == 3) {
+            if (uiR[0].contains(x, y)) scaleSel(-0.1f)
+            else if (uiR[1].contains(x, y)) scaleSel(0.1f)
+            else if (uiR[2].contains(x, y)) {
+                defaultLayout(width.toFloat(), height.toFloat())
+                joyFixed = false
+                applyLayout()
+                ctlSave()
+            }
+            else if (uiR[3].contains(x, y)) { joyFixed = !joyFixed; ctlSave() }
+            else if (uiR[4].contains(x, y)) {
+                ctlSave()
+                if (editOnly) onExit() else uiMode = 2
+            } else {
+                selEl = -1
+                val rads = floatArrayOf(joyR, atR, swR)
+                val xs = floatArrayOf(joyHX, atX, swX)
+                val ys = floatArrayOf(joyHY, atY, swY)
+                for (i in 2 downTo 0) {
+                    if (hypot(x - xs[i], y - ys[i]) < rads[i] + 8f * d) {
+                        selEl = i
+                        dragging = true
+                        dragDx = x - xs[i]
+                        dragDy = y - ys[i]
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    private fun uiTouch(e: MotionEvent): Boolean {
+        val x = e.x
+        val y = e.y
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> uiPress(x, y)
+            MotionEvent.ACTION_MOVE -> {
+                if (uiMode == 3 && dragging && selEl >= 0) {
+                    cxs[selEl] = ((x - dragDx) / width).coerceIn(0.04f, 0.96f)
+                    cys[selEl] = ((y - dragDy) / height).coerceIn(0.1f, 0.96f)
+                    applyLayout()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (dragging) { dragging = false; ctlSave() }
+            }
+        }
+        return true
+    }
+
 }

@@ -54,7 +54,9 @@ class Decal(val x: Float, val y: Float, val kind: Int, val size: Float)
 class Loot(val x: Float, val y: Float, val type: Int, val id: Int) {
     var t = 0f
 }
-class Bullet(var x: Float, var y: Float, val vx: Float, val vy: Float, val dmg: Float, var life: Float, val mine: Boolean)
+class Bullet(var x: Float, var y: Float, val vx: Float, val vy: Float, val dmg: Float, var life: Float, val mine: Boolean) {
+    var owner: Ent? = null
+}
 class Particle(var x: Float, var y: Float, var vx: Float, var vy: Float, var life: Float, val color: Int, val size: Float)
 
 open class Ent(var x: Float, var y: Float) {
@@ -88,6 +90,12 @@ class Player(x: Float, y: Float, val look: Look) : Ent(x, y) {
 
 class Bot(x: Float, y: Float, val look: Look, val ally: Boolean) : Ent(x, y) {
     var peer: NetPeer? = null
+    val owned = BooleanArray(6)
+    var ammo = 24
+    var kills = 0
+    var note = ""
+    var noteSeq = 0
+    fun say(s: String) { note = s; noteSeq = (noteSeq + 1) and 127 }
     var weapon = 3
     var flash = 0f
 }

@@ -29,6 +29,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private val cards = Array(4) { RectF() }
     private val backBtn = RectF()
     private val mp = Array(2) { RectF() }
+    private val ctlBtn = RectF()
     private var vig: Paint? = null
     private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ")
     private val subs = arrayOf("20 ботов-выживших, зомби и собаки", "по Wi-Fi: до 4 игроков", "")
@@ -187,7 +188,8 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private fun drawSettings(c: Canvas, w: Float, h: Float) {
         fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
         txt(c, "НАСТРОЙКИ", w / 2f, h * 0.28f, 38f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
-        txt(c, "Пока здесь пусто", w / 2f, h * 0.45f, 18f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
+        ctlBtn.set(w / 2f - 190f * d, h * 0.40f, w / 2f + 190f * d, h * 0.40f + 62f * d)
+        drawButton(c, ctlBtn, "КАСТОМИЗАЦИЯ УПРАВЛЕНИЯ", "размер и положение кнопок", pressed == 13)
         backBtn.set(w / 2f - 130f * d, h * 0.6f, w / 2f + 130f * d, h * 0.6f + 62f * d)
         drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
     }
@@ -198,7 +200,10 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
             if (mp[1].contains(x, y)) return 12
             return if (backBtn.contains(x, y)) 10 else -1
         }
-        if (screen == 1) return if (backBtn.contains(x, y)) 10 else -1
+        if (screen == 1) {
+            if (ctlBtn.contains(x, y)) return 13
+            return if (backBtn.contains(x, y)) 10 else -1
+        }
         for (i in 0..2) if (btn[i].contains(x, y)) return i
         for (i in 0..3) if (cards[i].contains(x, y)) return 4 + i
         return -1
@@ -213,6 +218,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         else if (id == 1) screen = 2
         else if (id == 11) { save(); onPlay(2, skin) }
         else if (id == 12) { save(); onPlay(3, skin) }
+        else if (id == 13) { save(); onPlay(4, skin) }
         else if (id == 2) screen = 1
         else if (id in 4..7) { skin = id - 4; save() }
         else if (id == 10) screen = 0

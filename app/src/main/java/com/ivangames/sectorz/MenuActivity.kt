@@ -30,8 +30,8 @@ class MenuActivity : Activity() {
         val prefs = getSharedPreferences("sectorz", MODE_PRIVATE)
         val et = EditText(this)
         et.setText(prefs.getString("ip", "192.168.") ?: "192.168.")
-        AlertDialog.Builder(this)
-            .setTitle("IP хоста (написан внизу экрана у хоста)")
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Ищу хост в сети... (или введи IP)")
             .setView(et)
             .setPositiveButton("Подключиться") { _, _ ->
                 val ip = et.text.toString().trim()
@@ -39,7 +39,20 @@ class MenuActivity : Activity() {
                 start(3, skin, ip)
             }
             .setNegativeButton("Отмена", null)
-            .show()
+            .create()
+        var th: Thread? = null
+        dlg.setOnShowListener {
+            th = Discovery.listen { ip ->
+                runOnUiThread {
+                    if (dlg.isShowing) {
+                        et.setText(ip)
+                        dlg.setTitle("Найден хост: " + ip)
+                    }
+                }
+            }
+        }
+        dlg.setOnDismissListener { th?.interrupt() }
+        dlg.show()
     }
 
     override fun onResume() { super.onResume(); v.resume(); hideBars() }

@@ -17,6 +17,7 @@ class GameActivity : Activity() {
         v = GameView(this, skin, mode == 1) { finish() }
         setContentView(v)
         v.startNet(mode, ip)
+        if (mode == 4) v.openEditor()
         hideBars()
     }
 
@@ -24,7 +25,7 @@ class GameActivity : Activity() {
     override fun onPause() { super.onPause(); v.pause() }
     override fun onDestroy() { v.stopNet(); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) hideBars() }
-    override fun onBackPressed() { finish() }
+    override fun onBackPressed() { if (!v.back()) finish() }
 
     @Suppress("DEPRECATION")
     private fun hideBars() {
