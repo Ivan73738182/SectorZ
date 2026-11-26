@@ -21,6 +21,7 @@ class NetPeer(val sock: Socket) {
     @Volatile var lastSw = 0
     @Volatile var gotInput = false
     @Volatile var skin = 0
+    @Volatile var name = "Игрок"
     @Volatile var hello = false
     @Volatile var snap: ByteArray? = null
     var bot: Bot? = null
@@ -219,6 +220,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
                     val type = bi.readByte().toInt()
                     if (type == 3) {
                         pr.skin = bi.readByte().toInt().coerceIn(0, 3)
+                        pr.name = bi.readUTF()
                         pr.hello = true
                     } else if (type == 1) {
                         pr.jx = bi.readFloat()
@@ -262,6 +264,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
                 nb.owned[3] = true
                 nb.ammo = 24
                 nb.peer = pr
+                nb.name = pr.name
                 pr.bot = nb
                 g.bots.add(nb)
                 g.say(Looks.names[pr.skin] + " в игре")
@@ -276,10 +279,10 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         }
         val lines = ArrayList<String>()
         if (peers.isNotEmpty()) {
-            lines.add(Looks.names[skin] + " (ты): " + g.player.kills)
+            lines.add(g.myName + " (ты): " + g.player.kills)
             for (pr in peers) {
                 val b = pr.bot
-                if (b != null) lines.add(Looks.names[pr.skin] + ": " + b.kills)
+                if (b != null) lines.add(pr.name + ": " + b.kills)
             }
         }
         board = lines
@@ -288,6 +291,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
             sendT = 0f
             broadcast()
         }
+        if (peers.isEmpty()) g.evN = 0
     }
 
     private fun wEnt(o: DataOutputStream, e: Ent) {
@@ -305,7 +309,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         o.writeShort(e.maxHp.toInt().coerceIn(1, 30000))
     }
 
-    private fun human(o: DataOutputStream, id: Int, sk: Int, e: Ent, weapon: Int, flash: Float, ammo: Int, kills: Int, owned: BooleanArray) {
+    private fun human(o: DataOutputStream, id: Int, sk: Int, e: Ent, weapon: Int, flash: Float, ammo: Int, kills: Int, owned: BooleanArray, name: String) {
         o.writeByte(id)
         o.writeByte(sk)
         wEnt(o, e)
@@ -316,6 +320,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         var m = 0
         for (k in 0 until 6) if (owned[k]) m = m or (1 shl k)
         o.writeByte(m)
+        o.writeUTF(name)
     }
 
     private fun buildBody(): ByteArray {
@@ -325,10 +330,10 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         val hs = ArrayList<NetPeer>()
         for (pr in peers) if (pr.bot != null && pr.hello) hs.add(pr)
         o.writeByte(1 + hs.size)
-        human(o, 0, skin, p, p.weapon, p.flash, p.ammo, p.kills, p.owned)
+        human(o, 0, skin, p, p.weapon, p.flash, p.ammo, p.kills, p.owned, g.myName)
         for (pr in hs) {
             val b = pr.bot
-            if (b != null) human(o, pr.id, pr.skin, b, b.weapon, b.flash, b.ammo, b.kills, b.owned)
+            if (b != null) human(o, pr.id, pr.skin, b, b.weapon, b.flash, b.ammo, b.kills, b.owned, pr.name)
         }
         o.writeShort(g.zombies.size)
         for (z in g.zombies) {
@@ -367,6 +372,14 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
             o.writeFloat(b.vx)
             o.writeFloat(b.vy)
         }
+        val en = g.evN
+        o.writeByte(en)
+        for (q in 0 until en) {
+            o.writeByte(g.evId[q])
+            o.writeFloat(g.evX[q])
+            o.writeFloat(g.evY[q])
+        }
+        g.evN = 0
         o.flush()
         return bo.toByteArray()
     }
@@ -411,6 +424,7 @@ val pr = NetPeer(s)
                 val o = DataOutputStream(bo)
                 o.writeByte(3)
                 o.writeByte(skin)
+                o.writeUTF(g.myName)
                 pr.send(bo.toByteArray())
                 status = "Ждём данные от хоста ..."
                 while (pr.alive && running) {
@@ -496,8 +510,9 @@ val pr = NetPeer(s)
                 p.ammo = i.readShort().toInt()
                 p.kills = i.readShort().toInt()
                 val m = i.readByte().toInt()
+                i.readUTF()
                 for (q in 0 until 6) p.owned[q] = (m and (1 shl q)) != 0
-                lines.add(Looks.names[sk] + " (ты): " + p.kills)
+                lines.add(g.myName + " (ты): " + p.kills)
             } else {
                 val lk = Looks.players[sk]
                 var bt = takeBot(oldBots, true, lk.skin, lk.shirt, lk.pants, lk.hair, lk.hat, lk.hatColor)
@@ -512,7 +527,8 @@ val pr = NetPeer(s)
                 i.readShort()
                 val kl = i.readShort().toInt()
                 i.readByte()
-                lines.add(Looks.names[sk] + ": " + kl)
+                bt.name = i.readUTF()
+                lines.add(bt.name + ": " + kl)
                 newBots.add(bt)
             }
         }
@@ -589,6 +605,13 @@ val pr = NetPeer(s)
             val vx = i.readFloat()
             val vy = i.readFloat()
             g.bullets.add(Bullet(x, y, vx, vy, 0f, 1f, false))
+        }
+        val ne = i.readByte().toInt()
+        for (q in 0 until ne) {
+            val eid = i.readByte().toInt()
+            val ex = i.readFloat()
+            val ey = i.readFloat()
+            g.playEvent(eid, ex, ey)
         }
         if (!got) {
             got = true

@@ -31,6 +31,8 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private val mp = Array(2) { RectF() }
     private val ctlBtn = RectF()
     private var pendKind = 0
+    private val nameBtn = RectF()
+    private val stBtn = Array(3) { RectF() }
     private val mm = Array(3) { RectF() }
     private var vig: Paint? = null
     private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ")
@@ -138,7 +140,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         }.also { vig = it }
         c.drawRect(0f, 0f, w, h, v)
 
-        if (screen == 0) drawMain(c, w, h) else if (screen == 1) drawSettings(c, w, h) else if (screen == 3) drawModes(c, w, h) else drawMulti(c, w, h)
+        if (screen == 0) drawMain(c, w, h) else if (screen == 1) drawSettings2(c, w, h) else if (screen == 3) drawModes(c, w, h) else drawMulti(c, w, h)
     }
 
     private fun drawMain(c: Canvas, w: Float, h: Float) {
@@ -165,7 +167,8 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         val cx2 = w * 0.74f
         val left = cx2 - total / 2f
         val top = h * 0.5f - total / 2f + 18f * d
-        txt(c, "ВЫБЕРИ ГЕРОЯ", cx2, top - 16f * d, 18f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        nameBtn.set(cx2 - 115f * d, top - 46f * d, cx2 + 115f * d, top - 12f * d)
+        drawButton(c, nameBtn, "ИМЯ: " + (prefs.getString("name", "Игрок") ?: "Игрок"), "", pressed == 30)
         for (i in 0..3) {
             val l = left + (i % 2) * (cs + g2)
             val t = top + (i / 2) * (cs + g2)
@@ -208,9 +211,11 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         }
         if (screen == 1) {
             if (ctlBtn.contains(x, y)) return 13
+            for (i in 0..2) if (stBtn[i].contains(x, y)) return 40 + i
             return if (backBtn.contains(x, y)) 10 else -1
         }
         for (i in 0..2) if (btn[i].contains(x, y)) return i
+        if (nameBtn.contains(x, y)) return 30
         for (i in 0..3) if (cards[i].contains(x, y)) return 4 + i
         return -1
     }
@@ -220,12 +225,17 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     }
 
     private fun click(id: Int) {
+        Snd.play(Snd.CLICK, 1f)
         if (id == 0) { pendKind = 0; screen = 3 }
         else if (id in 20..22) { save(); onPlay(pendKind + 10 * (id - 20), skin) }
         else if (id == 1) screen = 2
         else if (id == 11) { pendKind = 2; screen = 3 }
         else if (id == 12) { save(); onPlay(3, skin) }
         else if (id == 13) { save(); onPlay(4, skin) }
+        else if (id == 30) onPlay(99, 0)
+        else if (id == 40) Cfg.nextVol(context)
+        else if (id == 41) Cfg.nextAim(context)
+        else if (id == 42) Cfg.nextFps(context)
         else if (id == 2) screen = 1
         else if (id in 4..7) { skin = id - 4; save() }
         else if (id == 10) screen = 0
@@ -307,6 +317,28 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
             y += bh + g
         }
         backBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh * 0.8f)
+        drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
+    }
+
+
+
+    private fun drawSettings2(c: Canvas, w: Float, h: Float) {
+        fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
+        txt(c, "НАСТРОЙКИ", w / 2f, h * 0.15f, 34f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
+        val bw = min(w * 0.55f, 420f * d)
+        val bh = min(52f * d, h * 0.11f)
+        val g = min(9f * d, h * 0.02f)
+        var y = h * 0.22f
+        ctlBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+        drawButton(c, ctlBtn, "КАСТОМИЗАЦИЯ УПРАВЛЕНИЯ", "", pressed == 13)
+        y += bh + g
+        val lab = arrayOf(Cfg.volLabel(), Cfg.aimLabel(), Cfg.fpsLabel())
+        for (i in 0..2) {
+            stBtn[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+            drawButton(c, stBtn[i], lab[i], "", pressed == 40 + i)
+            y += bh + g
+        }
+        backBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
         drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
     }
 

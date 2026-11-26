@@ -12,8 +12,9 @@ class MenuActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Snd.init(applicationContext)
         v = MenuView(this) { mode, skin ->
-            if (mode == 3) askIp(skin) else start(mode % 10, skin, "", mode / 10)
+            if (mode == 99) askName() else if (mode == 3) askIp(skin) else start(mode % 10, skin, "", mode / 10)
         }
         setContentView(v)
         hideBars()
@@ -24,6 +25,23 @@ class MenuActivity : Activity() {
             Intent(this, GameActivity::class.java)
                 .putExtra("mode", mode).putExtra("skin", skin).putExtra("ip", ip).putExtra("gm", gm)
         )
+    }
+
+    private fun askName() {
+        val prefs = getSharedPreferences("sectorz", MODE_PRIVATE)
+        val et = EditText(this)
+        et.setText(prefs.getString("name", "") ?: "")
+        et.setSingleLine(true)
+        et.filters = arrayOf(android.text.InputFilter.LengthFilter(10))
+        AlertDialog.Builder(this)
+            .setTitle("Твоё имя (до 10 символов)")
+            .setView(et)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val nm = et.text.toString().trim()
+                prefs.edit().putString("name", if (nm.isEmpty()) "Игрок" else nm).apply()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     private fun askIp(skin: Int) {
@@ -55,8 +73,8 @@ class MenuActivity : Activity() {
         dlg.show()
     }
 
-    override fun onResume() { super.onResume(); v.resume(); hideBars() }
-    override fun onPause() { super.onPause(); v.pause() }
+    override fun onResume() { super.onResume(); v.resume(); hideBars(); Snd.music(true, 0.5f) }
+    override fun onPause() { super.onPause(); v.pause(); Snd.music(false) }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) hideBars() }
     override fun onBackPressed() { if (!v.back()) super.onBackPressed() }
 

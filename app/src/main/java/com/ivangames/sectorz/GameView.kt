@@ -64,6 +64,12 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     private var mbY = 0f
     private var mbR = 0f
     var gmode = gm
+    val myName: String = ctx.getSharedPreferences("sectorz", Context.MODE_PRIVATE).getString("name", "Игрок") ?: "Игрок"
+    private var fpsV = 60f
+    val evId = IntArray(48)
+    val evX = FloatArray(48)
+    val evY = FloatArray(48)
+    var evN = 0
     var wave = 0
     private var waveT = 4f
     var zoneX = 2400f
@@ -368,6 +374,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         if (e.dead) return
         e.hp -= dmg
         e.hurtT = 0.15f
+        sndAt(Snd.HIT, e.x, e.y)
         splat(e.x, e.y, ang, 4, 0xFF8B1A1A.toInt())
         moveEnt(e, cos(ang) * 5f, sin(ang) * 5f)
         if (e.hp <= 0f) {
@@ -375,6 +382,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
             e.deadT = 0f
             e.atkT = -1f
             if (owner is Bot) owner.kills++ else if (byPlayer) player.kills++
+            sndAt(Snd.DEATH, e.x, e.y)
             splat(e.x, e.y, ang, 10, 0xFF6B1010.toInt())
         }
     }
@@ -383,6 +391,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         if (t.dead) return
         t.hp -= dmg
         t.hurtT = 0.2f
+        sndAt(Snd.HURT, t.x, t.y)
         splat(t.x, t.y, ang, 5, 0xFFA01818.toInt())
         if (t === player) hitFlash = 0.35f
         if (t.hp <= 0f) {
@@ -399,6 +408,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         val sy = y + sin(ang) * (W.gunLen[w] + 10f)
         val sp = 1500f
         bullets.add(Bullet(sx, sy, cos(a) * sp, sin(a) * sp, W.dmg[w], if (w == 5) 0.7f else 0.5f, mine).also { it.owner = owner })
+        sndAt(Snd.shotFor(w), x, y)
     }
 
     private fun meleeCheck(p: Player, e: Ent, rng: Float, dmg: Float) {
@@ -518,7 +528,7 @@ val by = e.y
             if (dist < e.r + t.r + reachExtra) {
                 turn(e, ang, 14f, dt)
                 e.moving = false
-                if (e.cool <= 0f) { e.atkT = 0f; e.atkHit = false; e.cool = cdT }
+                if (e.cool <= 0f) { e.atkT = 0f; e.atkHit = false; e.cool = cdT; sndAt(if (e is Dog) Snd.BARK else Snd.GROAN, e.x, e.y) }
             } else steer(e, ang, speed, dt, true)
         } else wander(e, speed * 0.3f, dt)
     }
@@ -625,6 +635,7 @@ val by = e.y
             } else {
                 p.atkT = 0f
                 p.atkHit = false
+                sndAt(Snd.SWING, p.x, p.y)
                 p.cool = W.cd[p.weapon]
             }
         }
@@ -715,7 +726,7 @@ val by = e.y
             l.t += dt
             if (player.dead) continue
             if (abs(l.x - player.x) > 30f || abs(l.y - player.y) > 30f) continue
-            if (pickup(l)) it.remove()
+            if (pickup(l)) { it.remove(); sndAt(Snd.PICKUP, player.x, player.y) }
         }
     }
 
@@ -917,6 +928,7 @@ for (l in loot) {
         Sprites.human(c, player.look, player.angle, player.walk, player.moving, player.atkT, player.flash, player.weapon, pm)
         c.restore()
         if (atkId != -1) c.drawLine(player.x, player.y, player.x + cos(player.angle) * 240f, player.y + sin(player.angle) * 240f, strokeP(0x55FF5252, 2f))
+        drawNames(c)
         for (b in bullets) {
             c.drawLine(b.x, b.y, b.x - b.vx * 0.025f, b.y - b.vy * 0.025f, strokeP(0xFFFFE680.toInt(), 3f))
         }
@@ -1017,7 +1029,7 @@ for (l in loot) {
         val pressed = atkId != -1
         c.drawCircle(atX, atY, atR, fillP(if (pressed) 0xCCE53935.toInt() else 0x88E53935.toInt()))
         c.drawCircle(atX, atY, atR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
-        if (atkId != -1) c.drawCircle(atX + atkDx * atR * 2f, atY + atkDy * atR * 2f, 16f * d, fillP(0xCCFFFFFF.toInt()))
+        if (atkId != -1) c.drawCircle(atX + atkDx * atR * 2f / Cfg.aim, atY + atkDy * atR * 2f / Cfg.aim, 16f * d, fillP(0xCCFFFFFF.toInt()))
         txt(c, if (W.isGun(p.weapon)) "ОГОНЬ" else "УДАР", atX, atY + 6f * d, 17f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
         c.drawCircle(swX, swY, swR, fillP(0x88455A64.toInt()))
         c.drawCircle(swX, swY, swR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
@@ -1134,6 +1146,7 @@ for (l in loot) {
         var dt = (now - last) / 1e9f
         last = now
         if (dt > 0.05f) dt = 0.05f
+        if (dt > 0f) fpsV += (1f / dt - fpsV) * 0.05f
         update(dt)
         invalidate()
         postOnAnimation(this)
@@ -1154,7 +1167,7 @@ for (l in loot) {
     }
 
     private fun moveAtk(x: Float, y: Float) {
-        val r = atR * 2f
+        val r = atR * 2f / Cfg.aim
         var dx = (x - atX) / r
         var dy = (y - atY) / r
         val m = hypot(dx, dy)
@@ -1493,12 +1506,12 @@ for (l in loot) {
         if (uiMode == 3) { drawEditor(c, w, h); return }
         c.drawColor(0xBB000000.toInt())
         val bw = min(w * 0.5f, 380f * d)
-        val bh = min(60f * d, h * 0.14f)
+        val bh = min(60f * d, h * (if (uiMode == 2) 0.105f else 0.14f))
         val gp = min(14f * d, h * 0.03f)
-        val n = if (uiMode == 1) 3 else 2
+        val n = if (uiMode == 1) 3 else 5
         var y = h / 2f - (n * bh + (n - 1) * gp) / 2f + 10f * d
         txt(c, if (uiMode == 1) "МЕНЮ" else "НАСТРОЙКИ", w / 2f, y - 18f * d, 30f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
-        val labels = if (uiMode == 1) arrayOf("ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "ВЫЙТИ") else arrayOf("КАСТОМИЗАЦИЯ УПРАВЛЕНИЯ", "НАЗАД", "")
+        val labels = if (uiMode == 1) arrayOf("ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "ВЫЙТИ") else arrayOf("КАСТОМИЗАЦИЯ УПРАВЛЕНИЯ", Cfg.volLabel(), Cfg.aimLabel(), Cfg.fpsLabel(), "НАЗАД")
         for (i in 0 until n) {
             uiR[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
             uiBtn(c, uiR[i], labels[i], false)
@@ -1513,7 +1526,10 @@ for (l in loot) {
             else if (uiR[2].contains(x, y)) onExit()
         } else if (uiMode == 2) {
             if (uiR[0].contains(x, y)) { uiMode = 3; selEl = -1 }
-            else if (uiR[1].contains(x, y)) uiMode = 1
+            else if (uiR[1].contains(x, y)) Cfg.nextVol(context)
+            else if (uiR[2].contains(x, y)) Cfg.nextAim(context)
+            else if (uiR[3].contains(x, y)) Cfg.nextFps(context)
+            else if (uiR[4].contains(x, y)) uiMode = 1
         } else if (uiMode == 3) {
             if (uiR[0].contains(x, y)) scaleSel(-0.1f)
             else if (uiR[1].contains(x, y)) scaleSel(0.1f)
@@ -1766,6 +1782,7 @@ for (l in loot) {
     }
 
     private fun drawModeHud(c: Canvas, w: Float, h: Float) {
+        if (Cfg.fps) txt(c, "FPS: " + fpsV.toInt(), w / 2f, h - 30f * d, 12f * d, 0xFF9E9E9E.toInt(), Paint.Align.CENTER)
         if (gmode == 1) {
             var left = 0
             for (z in zombies) if (!z.dead) left++
@@ -1800,6 +1817,31 @@ for (l in loot) {
                 uiBtn(c, menuR, "ВЫЙТИ", false)
             }
         }
+    }
+
+
+
+    // ===== звук и имена =====
+
+    fun sndAt(id: Int, x: Float, y: Float) {
+        val v = 1f - hypot(x - camX, y - camY) / 1000f
+        if (v > 0.05f) Snd.play(id, v)
+        if (evN < 48 && sync != null && sync?.client != true) {
+            evId[evN] = id
+            evX[evN] = x
+            evY[evN] = y
+            evN++
+        }
+    }
+
+    fun playEvent(id: Int, x: Float, y: Float) {
+        val v = 1f - hypot(x - camX, y - camY) / 1000f
+        if (v > 0.05f && id in 0..11) Snd.play(id, v)
+    }
+
+    private fun drawNames(c: Canvas) {
+        if (!player.dead) txt(c, myName, player.x, player.y + 34f, 15f, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        for (b in bots) if (!b.dead && b.name.isNotEmpty()) txt(c, b.name, b.x, b.y + 34f, 15f, 0xFF80D8FF.toInt(), Paint.Align.CENTER)
     }
 
 }

@@ -91,6 +91,7 @@ class Player(x: Float, y: Float, val look: Look) : Ent(x, y) {
 
 class Bot(x: Float, y: Float, val look: Look, val ally: Boolean) : Ent(x, y) {
     var peer: NetPeer? = null
+    var name = ""
     val owned = BooleanArray(6)
     var ammo = 24
     var kills = 0

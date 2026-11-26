@@ -14,6 +14,7 @@ class GameActivity : Activity() {
         val skin = intent.getIntExtra("skin", 0)
         val mode = intent.getIntExtra("mode", 0)
         val ip = intent.getStringExtra("ip") ?: ""
+        Snd.init(applicationContext)
         v = GameView(this, skin, mode == 1, intent.getIntExtra("gm", 0)) { finish() }
         setContentView(v)
         v.startNet(mode, ip)
@@ -21,8 +22,8 @@ class GameActivity : Activity() {
         hideBars()
     }
 
-    override fun onResume() { super.onResume(); v.resume(); hideBars() }
-    override fun onPause() { super.onPause(); v.pause() }
+    override fun onResume() { super.onResume(); v.resume(); hideBars(); Snd.music(true, 0.3f) }
+    override fun onPause() { super.onPause(); v.pause(); Snd.music(false) }
     override fun onDestroy() { v.stopNet(); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) hideBars() }
     override fun onBackPressed() { if (!v.back()) finish() }
