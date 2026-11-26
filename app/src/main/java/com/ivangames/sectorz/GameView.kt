@@ -118,10 +118,6 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     private val retryR = RectF()
     private val menuR = RectF()
 
-    init {
-        buildMap()
-        reset()
-    }
 
     // ---------- вспомогательное ----------
 
@@ -2304,4 +2300,9 @@ for (l in loot) {
         }
     }
 
+
+    init {
+        buildMap()
+        reset()
+    }
 }
