@@ -14,7 +14,7 @@ class GameActivity : Activity() {
         val skin = intent.getIntExtra("skin", 0)
         val mode = intent.getIntExtra("mode", 0)
         val ip = intent.getStringExtra("ip") ?: ""
-        v = GameView(this, skin, mode == 1) { finish() }
+        v = GameView(this, skin, mode == 1, intent.getIntExtra("gm", 0)) { finish() }
         setContentView(v)
         v.startNet(mode, ip)
         if (mode == 4) v.openEditor()

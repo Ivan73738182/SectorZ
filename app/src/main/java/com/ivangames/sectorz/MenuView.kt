@@ -30,9 +30,11 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private val backBtn = RectF()
     private val mp = Array(2) { RectF() }
     private val ctlBtn = RectF()
+    private var pendKind = 0
+    private val mm = Array(3) { RectF() }
     private var vig: Paint? = null
     private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ")
-    private val subs = arrayOf("20 ботов-выживших, зомби и собаки", "по Wi-Fi: до 4 игроков", "")
+    private val subs = arrayOf("режимы: свободный, волны, PVP", "по Wi-Fi: до 4 игроков", "")
 
     private fun initWalkers(w: Float, h: Float) {
         val rd = 100f * d
@@ -136,7 +138,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         }.also { vig = it }
         c.drawRect(0f, 0f, w, h, v)
 
-        if (screen == 0) drawMain(c, w, h) else if (screen == 1) drawSettings(c, w, h) else drawMulti(c, w, h)
+        if (screen == 0) drawMain(c, w, h) else if (screen == 1) drawSettings(c, w, h) else if (screen == 3) drawModes(c, w, h) else drawMulti(c, w, h)
     }
 
     private fun drawMain(c: Canvas, w: Float, h: Float) {
@@ -195,6 +197,10 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     }
 
     private fun hit(x: Float, y: Float): Int {
+        if (screen == 3) {
+            for (i in 0..2) if (mm[i].contains(x, y)) return 20 + i
+            return if (backBtn.contains(x, y)) 10 else -1
+        }
         if (screen == 2) {
             if (mp[0].contains(x, y)) return 11
             if (mp[1].contains(x, y)) return 12
@@ -214,9 +220,10 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     }
 
     private fun click(id: Int) {
-        if (id == 0) { save(); onPlay(0, skin) }
+        if (id == 0) { pendKind = 0; screen = 3 }
+        else if (id in 20..22) { save(); onPlay(pendKind + 10 * (id - 20), skin) }
         else if (id == 1) screen = 2
-        else if (id == 11) { save(); onPlay(2, skin) }
+        else if (id == 11) { pendKind = 2; screen = 3 }
         else if (id == 12) { save(); onPlay(3, skin) }
         else if (id == 13) { save(); onPlay(4, skin) }
         else if (id == 2) screen = 1
@@ -283,4 +290,24 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         backBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
         drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
     }
+
+
+    private fun drawModes(c: Canvas, w: Float, h: Float) {
+        fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
+        txt(c, "ВЫБЕРИ РЕЖИМ", w / 2f, h * 0.17f, 34f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
+        val bw = min(w * 0.55f, 460f * d)
+        val bh = min(66f * d, h * 0.14f)
+        val g = min(12f * d, h * 0.022f)
+        var y = h * 0.25f
+        val tt = arrayOf("СВОБОДНЫЙ", "ВОЛНЫ", "PVP")
+        val ss = arrayOf("город, боты-выжившие, зомби и собаки", "зомби идут волнами, союзников нет", "зона сужается, каждый сам за себя")
+        for (i in 0..2) {
+            mm[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+            drawButton(c, mm[i], tt[i], ss[i], pressed == 20 + i)
+            y += bh + g
+        }
+        backBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh * 0.8f)
+        drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
+    }
+
 }

@@ -13,16 +13,16 @@ class MenuActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         v = MenuView(this) { mode, skin ->
-            if (mode == 3) askIp(skin) else start(mode, skin, "")
+            if (mode == 3) askIp(skin) else start(mode % 10, skin, "", mode / 10)
         }
         setContentView(v)
         hideBars()
     }
 
-    private fun start(mode: Int, skin: Int, ip: String) {
+    private fun start(mode: Int, skin: Int, ip: String, gm: Int = 0) {
         startActivity(
             Intent(this, GameActivity::class.java)
-                .putExtra("mode", mode).putExtra("skin", skin).putExtra("ip", ip)
+                .putExtra("mode", mode).putExtra("skin", skin).putExtra("ip", ip).putExtra("gm", gm)
         )
     }
 

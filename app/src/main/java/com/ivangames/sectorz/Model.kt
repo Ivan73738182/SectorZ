@@ -60,6 +60,7 @@ class Bullet(var x: Float, var y: Float, val vx: Float, val vy: Float, val dmg: 
 class Particle(var x: Float, var y: Float, var vx: Float, var vy: Float, var life: Float, val color: Int, val size: Float)
 
 open class Ent(var x: Float, var y: Float) {
+    var hunt = false
     var angle = 0f
     var hp = 100f
     var maxHp = 100f

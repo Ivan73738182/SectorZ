@@ -253,7 +253,8 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
             if (!pr.hello) continue
             val bb = pr.bot
             if (bb == null) {
-                val nb = Bot(g.player.x, g.player.y, Looks.players[pr.skin], true)
+                val sp = g.spawnPoint()
+                val nb = Bot(sp.x, sp.y, Looks.players[pr.skin], true)
                 nb.hp = 120f
                 nb.maxHp = 120f
                 nb.weapon = 3
@@ -381,6 +382,13 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
             o.writeByte(pr.id)
             o.writeByte(if (b != null) b.noteSeq else 0)
             o.writeUTF(if (b != null) b.note else "")
+            o.writeByte(g.gmode)
+            o.writeShort(g.wave)
+            o.writeFloat(g.zoneX)
+            o.writeFloat(g.zoneY)
+            o.writeFloat(g.zoneR)
+            o.writeFloat(g.zoneT)
+            o.writeByte(if (g.pvpOver) 1 else 0)
             o.write(body)
             o.flush()
             pr.send(bo.toByteArray())
@@ -466,6 +474,13 @@ val pr = NetPeer(s)
             lastNote = seq
             if (note.isNotEmpty()) g.say(note)
         }
+        g.applyMode(i.readByte().toInt())
+        g.wave = i.readShort().toInt()
+        g.zoneX = i.readFloat()
+        g.zoneY = i.readFloat()
+        g.zoneR = i.readFloat()
+        g.zoneT = i.readFloat()
+        g.pvpOver = i.readByte().toInt() != 0
         val nh = i.readByte().toInt()
         val oldBots = ArrayList<Bot>(g.bots)
         val newBots = ArrayList<Bot>()

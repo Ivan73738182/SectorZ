@@ -7,7 +7,7 @@ import android.view.View
 import kotlin.math.*
 import kotlin.random.Random
 
-class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, private val onExit: () -> Unit) : View(ctx), Runnable {
+class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, gm: Int, private val onExit: () -> Unit) : View(ctx), Runnable {
 
     companion object {
         const val WORLD = 4800f
@@ -63,6 +63,26 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     private var mbX = 0f
     private var mbY = 0f
     private var mbR = 0f
+    var gmode = gm
+    var wave = 0
+    private var waveT = 4f
+    var zoneX = 2400f
+    var zoneY = 2400f
+    var zoneR = 3400f
+    var zoneT = 15f
+    var pvpOver = false
+    private var pvpT = 0f
+    private var zStep = 0
+    private var zAnim = 1f
+    private var zTX = 2400f
+    private var zTY = 2400f
+    private var zTR = 3400f
+    private var zFX = 2400f
+    private var zFY = 2400f
+    private var zFR = 3400f
+    private var specIdx = 0
+    private val specNext = RectF()
+    private val zonePath = Path()
 
     private var joyId = -1
     private var joyBX = 0f
@@ -125,11 +145,14 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     }
 
     private fun buildMap() {
-        val mr = Random(7)
+        walls.clear(); for (gl in grid) gl.clear(); props.clear(); buildings.clear(); decals.clear()
+        val mr = Random(7 + gmode * 100)
+        val skipP = if (gmode == 1) 0.5f else if (gmode == 2) 0.04f else 0.12f
+        val maxP = if (gmode == 1) 170 else if (gmode == 2) 120 else 90
         val t = 22f
         val roofCols = intArrayOf(0xFF5D4037.toInt(), 0xFF455A64.toInt(), 0xFF6D4C41.toInt(), 0xFF37474F.toInt(), 0xFF7B3F3F.toInt(), 0xFF4E5D3A.toInt())
         for (cx in 0 until 8) for (cy in 0 until 8) {
-            if (mr.nextFloat() < 0.12f) continue
+            if (mr.nextFloat() < skipP) continue
             val bw = 300f + mr.nextInt(90)
             val bh = 260f + mr.nextInt(90)
             val bx = cx * CELL + 130f + mr.nextInt((470f - bw).toInt())
@@ -146,7 +169,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         }
         val carCols = intArrayOf(0xFF8E2A2A.toInt(), 0xFF2A4E8E.toInt(), 0xFF6B6B6B.toInt(), 0xFF8E7B2A.toInt(), 0xFF2A6B4A.toInt(), 0xFF3A3A3A.toInt())
         var tries = 0
-        while (props.size < 90 && tries < 800) {
+        while (props.size < maxP && tries < 1200) {
             tries++
             val horiz = mr.nextBoolean()
             val kind = mr.nextInt(3)
@@ -286,7 +309,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         }
         for (i in 0 until 70) spawnZombie()
         for (i in 0 until 16) spawnDog()
-        say("Найди оружие и патроны в домах!")
+        afterReset()
     }
 
     private fun spawnZombie() {
@@ -394,6 +417,14 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         val dmg = W.dmg[p.weapon]
         for (z in zombies) meleeCheck(p, z, rng, dmg)
         for (g in dogs) meleeCheck(p, g, rng, dmg)
+        if (gmode == 2) for (o in bots) if (!o.dead) {
+            val ddx = o.x - p.x
+            val ddy = o.y - p.y
+            if (hypot(ddx, ddy) < rng + o.r && abs(normAng(atan2(ddy, ddx) - p.angle)) < 1.2f) {
+                hurtAlly(o, dmg, atan2(ddy, ddx))
+                if (o.dead) p.kills++
+            }
+        }
     }
 
     private fun nextWeapon() {
@@ -447,11 +478,11 @@ val by = e.y
 
     private fun updateMonster(e: Ent, dt: Float, speed: Float, detect: Float, dmg: Float, atkDur: Float, cdT: Float, reachExtra: Float) {
         if (e.dead) { e.deadT += dt; return }
-        if (!nearHuman(e)) return
+        if (!e.hunt && !nearHuman(e)) return
         e.hurtT = max(0f, e.hurtT - dt)
         e.cool -= dt
         var tgt: Ent? = null
-        var bd = detect * detect
+        var bd = if (e.hunt) 4000f * 4000f else detect * detect
         if (!player.dead) {
             val dx = player.x - e.x
             val dy = player.y - e.y
@@ -505,13 +536,18 @@ val by = e.y
         b.cool -= dt
         b.flash -= dt
         if (b.dead) { b.deadT += dt; return }
-        val en = nearestEnemy(b.x, b.y, 440f)
+        if (gmode == 2 && !pvpOver) {
+            val zdx = b.x - zoneX
+            val zdy = b.y - zoneY
+            if (zdx * zdx + zdy * zdy > (zoneR - 60f) * (zoneR - 60f)) { steer(b, atan2(-zdy, -zdx), 130f, dt, true); return }
+        }
+        val en = if (gmode == 2) nearestFoe(b, 440f) else nearestEnemy(b.x, b.y, 440f)
         if (en != null) {
             val ang = atan2(en.y - b.y, en.x - b.x)
             turn(b, ang, 4f, dt)
             val dist = hypot(en.x - b.x, en.y - b.y)
             if (b.cool <= 0f && abs(normAng(ang - b.angle)) < 0.12f) {
-                fire(b.x, b.y, b.angle + (rnd.nextFloat() - 0.5f) * 0.3f, b.weapon, false)
+                fire(b.x, b.y, b.angle + (rnd.nextFloat() - 0.5f) * 0.3f, b.weapon, false, b)
                 b.flash = 0.07f
                 b.cool = W.cd[b.weapon] * (if (b.weapon == 3) 2.4f else 1.8f)
             }
@@ -578,7 +614,7 @@ val by = e.y
         if (atk && p.cool <= 0f && p.atkT < 0f) {
             if (W.isGun(p.weapon)) {
                 if (p.ammo > 0) {
-                    fire(p.x, p.y, p.angle, p.weapon, true)
+                    fire(p.x, p.y, p.angle, p.weapon, true, p)
                     p.ammo--
                     p.cool = W.cd[p.weapon]
                     p.flash = 0.07f
@@ -637,6 +673,15 @@ val by = e.y
                     splat(b.x, b.y, atan2(-b.vy, -b.vx), 3, 0xFFFFD54F.toInt())
                 } else {
                     val hit = hitTest(b)
+                    if (hit == null && gmode == 2) {
+                        val hh = hitHuman(b)
+                        if (hh != null) {
+                            val was = hh.dead
+                            hurtAlly(hh, b.dmg, atan2(b.vy, b.vx))
+                            if (!was && hh.dead) { val o = b.owner; if (o is Bot) o.kills++ else if (o is Player) o.kills++ }
+                            remove = true
+                        }
+                    }
                     if (hit != null) {
                         hitEnemy(hit, b.dmg, atan2(b.vy, b.vx), b.mine, b.owner)
                         remove = true
@@ -679,6 +724,7 @@ val by = e.y
         if (sync?.client == true) { updateClientView(dt); return }
         sync?.hostStep(dt)
         reviveHost()
+        modeStep(dt)
         time += dt
         if (hitFlash > 0f) hitFlash -= dt
         if (msgT > 0f) msgT -= dt
@@ -693,7 +739,7 @@ val by = e.y
         dogs.removeAll { it.dead && it.deadT > 10f }
         bots.removeAll { it.dead && it.deadT > 15f && it.peer == null }
         spawnT += dt
-        if (spawnT > 2.5f) {
+        if (spawnT > 2.5f && gmode == 0) {
             spawnT = 0f
             if (zombies.size < 80) spawnZombie()
             if (dogs.size < 18 && rnd.nextInt(3) == 0) spawnDog()
@@ -703,8 +749,9 @@ val by = e.y
             val target = if (inside) 0f else 1f
             b.roofA += (target - b.roofA) * min(1f, dt * 8f)
         }
-        camX += (player.x - camX) * min(1f, dt * 10f)
-        camY += (player.y - camY) * min(1f, dt * 10f)
+        val ct = camTarget()
+        camX += (ct.x - camX) * min(1f, dt * 10f)
+        camY += (ct.y - camY) * min(1f, dt * 10f)
         if (gameOver) overT += dt
     }
 
@@ -747,6 +794,7 @@ val by = e.y
         if (v != null) c.drawRect(0f, 0f, w, h, v)
         if (hitFlash > 0f) c.drawColor(Color.argb(min(160, (hitFlash * 400f).toInt()), 200, 0, 0))
         drawHud(c, w, h)
+        drawModeHud(c, w, h)
         drawUi(c, w, h)
     }
 
@@ -892,6 +940,14 @@ for (l in loot) {
             pt.alpha = (a * 0.12f).toInt()
             c.drawLine(b.x - 8f, b.y + b.h / 2f, b.x + b.w + 8f, b.y + b.h / 2f, pt)
         }
+        if (gmode == 2 && zoneR > 0f) {
+            zonePath.reset()
+            zonePath.fillType = Path.FillType.EVEN_ODD
+            zonePath.addRect(-200f, -200f, WORLD + 200f, WORLD + 200f, Path.Direction.CW)
+            zonePath.addCircle(zoneX, zoneY, zoneR, Path.Direction.CW)
+            c.drawPath(zonePath, fillP(0x55D32F2F))
+            c.drawCircle(zoneX, zoneY, zoneR, strokeP(0xFFFF5252.toInt(), 6f))
+        }
         c.drawRect(0f, 0f, WORLD, WORLD, strokeP(0xFF8B0000.toInt(), 16f))
         c.restore()
     }
@@ -909,6 +965,12 @@ for (l in loot) {
         for (z in zombies) if (!z.dead) c.drawCircle(x0 + z.x * k, y0 + z.y * k, rr, fillP(0xFFE53935.toInt()))
         for (g in dogs) if (!g.dead) c.drawCircle(x0 + g.x * k, y0 + g.y * k, rr, fillP(0xFFFF9800.toInt()))
         for (b in bots) if (!b.dead) c.drawCircle(x0 + b.x * k, y0 + b.y * k, rr, fillP(if (b.ally) 0xFF40C4FF.toInt() else 0xFF66BB6A.toInt()))
+        if (gmode == 2) {
+            c.save()
+            c.clipRect(x0, y0, x0 + sz, y0 + sz)
+            c.drawCircle(x0 + zoneX * k, y0 + zoneY * k, zoneR * k, strokeP(0xFFFF5252.toInt(), 1.5f * d))
+            c.restore()
+        }
         c.drawCircle(x0 + player.x * k, y0 + player.y * k, 3.2f * d, fillP(0xFFFFFFFF.toInt()))
         c.drawRect(x0, y0, x0 + sz, y0 + sz, strokeP(0xAAFFFFFF.toInt(), 1.5f * d))
     }
@@ -961,12 +1023,12 @@ for (l in loot) {
         c.drawCircle(swX, swY, swR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
         txt(c, "СМЕНА", swX, swY + 4f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
 
-        if (gameOver && sync != null) {
+        if (gameOver && sync != null && gmode != 2) {
             c.drawColor(Color.argb(min(170, (overT * 300f).toInt()), 0, 0, 0))
             txt(c, "ВЫ ПОГИБЛИ", w / 2f, h * 0.38f, 40f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
             txt(c, "Возрождение через " + max(0, (6f - overT).toInt() + 1) + " с", w / 2f, h * 0.38f + 34f * d, 18f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
         }
-        if (gameOver && overT > 0.8f && sync == null) {
+        if (gameOver && overT > 0.8f && sync == null && gmode != 2) {
             c.drawColor(Color.argb(min(190, ((overT - 0.8f) * 300f).toInt()), 0, 0, 0))
             txt(c, "ВЫ ПОГИБЛИ", w / 2f, h * 0.33f, 46f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
             txt(c, "Убито зомби и собак: " + p.kills, w / 2f, h * 0.33f + 36f * d, 18f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
@@ -985,6 +1047,7 @@ for (l in loot) {
 
     private fun down(id: Int, x: Float, y: Float) {
         if (hypot(x - mbX, y - mbY) < mbR * 1.5f) { openUi(1); return }
+        if (specUi(x, y)) return
         if (!gameOver) {
             if (hypot(x - swX, y - swY) < swR * 1.4f) { nextWeapon(); return }
             if (atkId == -1 && hypot(x - atX, y - atY) < atR * 1.5f) { atkId = id; atkDx = 0f; atkDy = 0f; return }
@@ -1149,8 +1212,9 @@ for (l in loot) {
             val target = if (inside) 0f else 1f
             b.roofA += (target - b.roofA) * min(1f, dt * 8f)
         }
-        camX += (player.x - camX) * min(1f, dt * 10f)
-        camY += (player.y - camY) * min(1f, dt * 10f)
+        val ct = camTarget()
+        camX += (ct.x - camX) * min(1f, dt * 10f)
+        camY += (ct.y - camY) * min(1f, dt * 10f)
     }
 
 
@@ -1158,7 +1222,7 @@ for (l in loot) {
 
     private fun reviveHost() {
         val s = sync
-        if (s != null && !s.client && player.dead && player.deadT > 6f) {
+        if (s != null && !s.client && player.dead && player.deadT > 6f && gmode != 2) {
             player.dead = false
             player.hp = player.maxHp
             player.deadT = 0f
@@ -1246,7 +1310,7 @@ for (l in loot) {
             b.deadT += dt
             b.moving = false
             b.atkT = -1f
-            if (b.deadT > 6f) reviveBot(b)
+            if (b.deadT > 6f && gmode != 2) reviveBot(b)
             return
         }
         val mag = hypot(pr.jx, pr.jy)
@@ -1498,6 +1562,244 @@ for (l in loot) {
             }
         }
         return true
+    }
+
+
+
+    // ===== режимы игры =====
+
+    fun applyMode(m: Int) {
+        if (m == gmode) return
+        gmode = m
+        buildMap()
+        for (b in buildings) b.roofA = 1f
+    }
+
+    fun spawnPoint(): PointF = if (gmode == 2) freePoint(0f) else PointF(player.x, player.y)
+
+    private fun afterReset() {
+        wave = 0; waveT = 4f; pvpOver = false; specIdx = 0; pvpT = 0f; zStep = 0
+        zoneX = WORLD / 2f; zoneY = WORLD / 2f; zoneR = 3400f
+        zTX = zoneX; zTY = zoneY; zTR = zoneR; zFX = zoneX; zFY = zoneY; zFR = zoneR
+        zAnim = 1f; zoneT = 15f
+        if (gmode == 1) {
+            zombies.clear(); dogs.clear(); bots.clear()
+            say("Волны зомби! Держись!")
+        } else if (gmode == 2) {
+            while (zombies.size > 40) zombies.removeAt(zombies.size - 1)
+            while (dogs.size > 10) dogs.removeAt(dogs.size - 1)
+            for (b in bots) { b.hp = 100f; b.maxHp = 100f; b.weapon = 3 + rnd.nextInt(3) }
+            for (i in 0 until 80) { val q = freePoint(0f); loot.add(randomLoot(q.x, q.y)) }
+            val sp = freePoint(0f)
+            player.x = sp.x; player.y = sp.y; camX = sp.x; camY = sp.y
+            say("PVP: зона сужается, каждый сам за себя!")
+        } else {
+            say("Найди оружие и патроны в домах!")
+        }
+    }
+
+    private fun modeStep(dt: Float) {
+        if (gmode == 1) {
+            var left = 0
+            for (z in zombies) if (!z.dead) left++
+            for (z in dogs) if (!z.dead) left++
+            if (left == 0) {
+                waveT -= dt
+                if (waveT <= 0f) startWave()
+            }
+        } else if (gmode == 2) zoneStep(dt)
+    }
+
+    private fun startWave() {
+        wave++
+        waveT = 6f
+        val n = min(70, 6 + wave * 4)
+        val hs = ArrayList<Ent>()
+        if (!player.dead) hs.add(player)
+        for (b in bots) if (!b.dead && b.peer != null) hs.add(b)
+        if (hs.isEmpty()) hs.add(player)
+        for (i in 0 until n) {
+            val h = hs[rnd.nextInt(hs.size)]
+            var sx = h.x
+            var sy = h.y
+            for (t in 0 until 20) {
+                val a = rnd.nextFloat() * 2f * PI_F
+                val r = 650f + rnd.nextFloat() * 400f
+                val x = (h.x + cos(a) * r).coerceIn(60f, WORLD - 60f)
+                val y = (h.y + sin(a) * r).coerceIn(60f, WORLD - 60f)
+                if (!blocked(x, y, 22f)) { sx = x; sy = y; break }
+            }
+            val q = rnd.nextFloat()
+            if (wave >= 2 && q < 0.18f) {
+                val g = Dog(sx, sy)
+                g.hp = 40f + wave * 3f; g.maxHp = g.hp; g.r = 11f; g.hunt = true
+                dogs.add(g)
+            } else {
+                val type = if (wave >= 5 && q < 0.30f) 2 else if (wave >= 3 && q < 0.55f) 1 else 0
+                val z = Zombie(sx, sy, type, rnd.nextInt(6))
+                val k = 1f + wave * 0.06f
+                z.hp = (if (type == 0) 60f else if (type == 1) 35f else 200f) * k
+                z.maxHp = z.hp
+                z.r = if (type == 0) 14f else if (type == 1) 13f else 20f
+                z.angle = rnd.nextFloat() * 2f * PI_F
+                z.hunt = true
+                zombies.add(z)
+            }
+        }
+        for (i in 0 until 5) {
+            val h = hs[rnd.nextInt(hs.size)]
+            val a = rnd.nextFloat() * 2f * PI_F
+            val x = h.x + cos(a) * 160f
+            val y = h.y + sin(a) * 160f
+            if (!blocked(x, y, 16f)) loot.add(randomLoot(x, y))
+        }
+        say("Волна " + wave + "!")
+    }
+
+    private fun zoneStep(dt: Float) {
+        if (pvpOver) return
+        pvpT += dt
+        zAnim = min(1f, zAnim + dt / 4f)
+        zoneX = lerpF(zFX, zTX, zAnim)
+        zoneY = lerpF(zFY, zTY, zAnim)
+        zoneR = lerpF(zFR, zTR, zAnim)
+        zoneT -= dt
+        if (zoneT <= 0f) {
+            if (zTR > 120f) {
+                zStep++
+                val nr = max(120f, zTR - 260f)
+                val a = rnd.nextFloat() * 2f * PI_F
+                val off = rnd.nextFloat() * (zTR - nr) * 0.8f
+                zFX = zoneX; zFY = zoneY; zFR = zoneR
+                zTX = (zTX + cos(a) * off).coerceIn(300f, WORLD - 300f)
+                zTY = (zTY + sin(a) * off).coerceIn(300f, WORLD - 300f)
+                zTR = nr
+                zAnim = 0f
+                say("Зона сужается!")
+            }
+            zoneT = 10f
+        }
+        val dps = (3f + 1.5f * zStep) * dt
+        val r2 = zoneR * zoneR
+        if (!player.dead && outZ(player, r2)) hurtZone(player, dps)
+        for (b in bots) if (!b.dead && outZ(b, r2)) hurtZone(b, dps)
+        for (z in zombies) if (!z.dead && outZ(z, r2)) hurtZone(z, dps)
+        for (z in dogs) if (!z.dead && outZ(z, r2)) hurtZone(z, dps)
+        var alive = if (player.dead) 0 else 1
+        for (b in bots) if (!b.dead) alive++
+        if (pvpT > 5f && alive <= 1) pvpOver = true
+    }
+
+    private fun outZ(e: Ent, r2: Float): Boolean {
+        val dx = e.x - zoneX
+        val dy = e.y - zoneY
+        return dx * dx + dy * dy > r2
+    }
+
+    private fun hurtZone(e: Ent, dmg: Float) {
+        e.hp -= dmg
+        e.hurtT = 0.1f
+        if (e === player) hitFlash = 0.12f
+        if (e.hp <= 0f && !e.dead) {
+            e.dead = true
+            e.deadT = 0f
+            e.atkT = -1f
+            if (e === player) { gameOver = true; overT = 0f }
+        }
+    }
+
+    private fun nearestFoe(b: Bot, range: Float): Ent? {
+        var best: Ent? = nearestEnemy(b.x, b.y, range)
+        var bd = range * range
+        if (best != null) bd = (best.x - b.x) * (best.x - b.x) + (best.y - b.y) * (best.y - b.y)
+        if (!player.dead) {
+            val dd = (player.x - b.x) * (player.x - b.x) + (player.y - b.y) * (player.y - b.y)
+            if (dd < bd) { bd = dd; best = player }
+        }
+        for (o in bots) {
+            if (o === b || o.dead) continue
+            val dd = (o.x - b.x) * (o.x - b.x) + (o.y - b.y) * (o.y - b.y)
+            if (dd < bd) { bd = dd; best = o }
+        }
+        return best
+    }
+
+    private fun hitHuman(b: Bullet): Ent? {
+        if (!player.dead && b.owner !== player) {
+            val dx = player.x - b.x
+            val dy = player.y - b.y
+            val rr = player.r + 2f
+            if (dx * dx + dy * dy < rr * rr) return player
+        }
+        for (o in bots) {
+            if (o.dead || o === b.owner) continue
+            val dx = o.x - b.x
+            val dy = o.y - b.y
+            val rr = o.r + 2f
+            if (dx * dx + dy * dy < rr * rr) return o
+        }
+        return null
+    }
+
+    private fun camTarget(): Ent {
+        if (gmode == 2 && player.dead) {
+            val l = ArrayList<Ent>()
+            for (b in bots) if (!b.dead) l.add(b)
+            if (l.isNotEmpty()) return l[((specIdx % l.size) + l.size) % l.size]
+        }
+        return player
+    }
+
+    private fun specUi(x: Float, y: Float): Boolean {
+        if (gmode != 2) return false
+        if (pvpOver) {
+            if (sync?.client != true && retryR.contains(x, y)) { reset(); return true }
+            if (menuR.contains(x, y)) { onExit(); return true }
+            return true
+        }
+        if (player.dead) {
+            if (specNext.contains(x, y)) { specIdx++; return true }
+            if (menuR.contains(x, y)) { onExit(); return true }
+            return true
+        }
+        return false
+    }
+
+    private fun drawModeHud(c: Canvas, w: Float, h: Float) {
+        if (gmode == 1) {
+            var left = 0
+            for (z in zombies) if (!z.dead) left++
+            for (z in dogs) if (!z.dead) left++
+            txt(c, "ВОЛНА " + wave, w / 2f, 28f * d, 22f * d, 0xFFFF8A65.toInt(), Paint.Align.CENTER)
+            txt(c, if (left > 0) "Осталось: " + left else "Передышка перед следующей волной", w / 2f, 46f * d, 13f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        } else if (gmode == 2) {
+            var alive = if (player.dead) 0 else 1
+            for (b in bots) if (!b.dead) alive++
+            txt(c, "Живых: " + alive, w / 2f, 28f * d, 20f * d, 0xFFFFCDD2.toInt(), Paint.Align.CENTER)
+            txt(c, "Зона сужается через " + max(0, zoneT.toInt() + 1) + " с", w / 2f, 46f * d, 13f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            val zx = player.x - zoneX
+            val zy = player.y - zoneY
+            if (!player.dead && zx * zx + zy * zy > zoneR * zoneR) {
+                txt(c, "ВНЕ ЗОНЫ! Беги в круг!", w / 2f, h * 0.32f, 24f * d, 0xFFFF1744.toInt(), Paint.Align.CENTER)
+            }
+            val bw = min(w * 0.3f, 200f * d)
+            val bh = 46f * d
+            if (pvpOver) {
+                c.drawColor(0x99000000.toInt())
+                txt(c, if (!player.dead) "ПОБЕДА!" else "ИГРА ОКОНЧЕНА", w / 2f, h * 0.38f, 44f * d, if (!player.dead) 0xFFFFD54F.toInt() else 0xFFE53935.toInt(), Paint.Align.CENTER)
+                txt(c, "Убито: " + player.kills, w / 2f, h * 0.38f + 32f * d, 18f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+                retryR.set(w / 2f - bw - 8f * d, h * 0.55f, w / 2f - 8f * d, h * 0.55f + bh)
+                menuR.set(w / 2f + 8f * d, h * 0.55f, w / 2f + bw + 8f * d, h * 0.55f + bh)
+                if (sync?.client != true) uiBtn(c, retryR, "ЗАНОВО", false) else retryR.setEmpty()
+                uiBtn(c, menuR, "ВЫЙТИ", false)
+            } else if (player.dead) {
+                txt(c, "НАБЛЮДЕНИЕ", w / 2f, h - 70f * d, 18f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+                specNext.set(w / 2f - bw - 8f * d, h - 58f * d, w / 2f - 8f * d, h - 58f * d + bh)
+                menuR.set(w / 2f + 8f * d, h - 58f * d, w / 2f + bw + 8f * d, h - 58f * d + bh)
+                uiBtn(c, specNext, "ДАЛЕЕ >", false)
+                uiBtn(c, menuR, "ВЫЙТИ", false)
+            }
+        }
     }
 
 }
