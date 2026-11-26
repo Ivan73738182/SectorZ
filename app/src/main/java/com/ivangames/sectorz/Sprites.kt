@@ -55,7 +55,7 @@ object Sprites {
             line(c, 2f, 10f, 12f, 16f, 4f, look.shirt)
             oval(c, 13f, -17f, 3f, 3f, look.skin)
             oval(c, 13f, 17f, 3f, 3f, look.skin)
-        } else if (weapon >= 3) {
+        } else if (weapon in 3..7) {
             val len = W.gunLen[weapon]
             val rec = if (flash > 0f) -2.5f else 0f
             line(c, 2f, 9f, 11f + rec, 4f, 4.2f, look.shirt)
@@ -63,6 +63,8 @@ object Sprites {
             line(c, 8f + rec, 3f, 10f + len + rec, 3f, 4.6f, 0xFF262626.toInt())
             if (weapon == 4) box(c, 12f + rec, 3f, 15f + rec, 10f, 0xFF3A3A3A.toInt())
             if (weapon == 5) line(c, 8f + rec, 3f, 8f + len * 0.4f + rec, 3f, 4.8f, 0xFF6D4C2F.toInt())
+            if (weapon == 6) line(c, 8f + rec, 3f, 8f + len * 0.5f + rec, 3f, 5.6f, 0xFF6D4C2F.toInt())
+            if (weapon == 7) box(c, 14f + rec, -1f, 22f + rec, 2f, 0xFF263238.toInt())
             oval(c, 11f + rec, 4f, 3.2f, 3.2f, look.skin)
             oval(c, 9f + len * 0.55f + rec, 1.5f, 3.2f, 3.2f, look.skin)
             if (flash > 0f) {
@@ -76,6 +78,11 @@ object Sprites {
             line(c, 1f, 9f, hx, hy, 4.2f, look.shirt)
             if (weapon == 1) line(c, hx, hy, hx + cos(a) * 14f, hy + sin(a) * 14f, 2.6f, 0xFFCFD8DC.toInt())
             if (weapon == 2) line(c, hx, hy, hx + cos(a) * 26f, hy + sin(a) * 26f, 5f, 0xFF8D6E3F.toInt())
+            if (weapon == 8) line(c, hx, hy, hx + cos(a) * 34f, hy + sin(a) * 34f, 2.4f, 0xFFECEFF1.toInt())
+            if (weapon == 9) {
+                line(c, hx, hy, hx + cos(a) * 22f, hy + sin(a) * 22f, 7f, 0xFFE65100.toInt())
+                line(c, hx, hy, hx + cos(a) * 24f, hy + sin(a) * 24f, 3f, 0xFFB0BEC5.toInt())
+            }
             oval(c, hx, hy, 3.4f, 3.4f, look.skin)
             val lx = 11f + (if (moving) sw * 0.3f else 0f)
             line(c, 1f, -9f, lx, -7f, 4.2f, look.shirt)
@@ -105,14 +112,21 @@ object Sprites {
         val sc = when (type) {
             1 -> 0.92f
             2 -> 1.45f
+            3 -> 0.95f
+            4 -> 1.12f
+            6 -> 2.3f
             else -> 1f
         }
         val skin = when (type) {
             1 -> 0xFFA9B77E.toInt()
             2 -> 0xFF6B8765.toInt()
+            3 -> 0xFF9CCC3C.toInt()
+            4 -> 0xFFC98A3F.toInt()
+            5 -> 0xFFB0C4DE.toInt()
+            6 -> 0xFF7A4A3A.toInt()
             else -> 0xFF86A86B.toInt()
         }
-        val shirt = if (type == 2) 0xFF3B2F2F.toInt() else zShirts[variant % zShirts.size]
+        val shirt = if (type == 2) 0xFF3B2F2F.toInt() else if (type == 3) 0xFF4E6B1E.toInt() else if (type == 4) 0xFF8B2E1E.toInt() else if (type == 5) 0xFF90A4AE.toInt() else if (type == 6) 0xFF2B1B1B.toInt() else zShirts[variant % zShirts.size]
         c.save()
         c.rotate(Math.toDegrees(ang.toDouble()).toFloat())
         c.scale(sc, sc)
@@ -197,6 +211,22 @@ object Sprites {
                 line(c, -9f, 0f, 9f, 0f, 4.5f, dk)
                 box(c, -1f, 0f, 3f, 8f, 0xFF3A3A3A.toInt())
             }
+            6 -> {
+                line(c, -11f, 0f, 11f, 0f, 5f, dk)
+                line(c, -11f, 0f, -3f, 0f, 5.5f, 0xFF6D4C2F.toInt())
+            }
+            7 -> {
+                line(c, -13f, 0f, 13f, 0f, 3.4f, dk)
+                box(c, -2f, -6f, 4f, -2f, 0xFF263238.toInt())
+            }
+            8 -> {
+                line(c, -3f, 0f, 12f, 0f, 2.4f, 0xFFECEFF1.toInt())
+                line(c, -9f, 0f, -3f, 0f, 3.5f, 0xFF4E342E.toInt())
+            }
+            9 -> {
+                line(c, -8f, 0f, 9f, 0f, 6f, 0xFFE65100.toInt())
+                line(c, -2f, 0f, 11f, 0f, 3f, 0xFFB0BEC5.toInt())
+            }
             else -> {
                 line(c, -12f, 0f, 12f, 0f, 4f, dk)
                 line(c, -12f, 0f, -4f, 0f, 5f, 0xFF6D4C2F.toInt())
@@ -212,6 +242,8 @@ object Sprites {
         val glow = when (type) {
             0 -> 0x44FFD54F
             1 -> 0x4466FF99
+            3 -> 0x44FF8A65
+            4 -> 0x44FFAB40
             else -> 0x4466CCFF
         }
         oval(c, 0f, 0f, 16f + sin(t * 4f) * 1.5f, 16f + sin(t * 4f) * 1.5f, glow)
@@ -228,6 +260,15 @@ object Sprites {
                 box(c, -8f, -6f, 8f, 6f, 0xFFF5F5F5.toInt())
                 box(c, -1.5f, -5f, 1.5f, 5f, 0xFFD32F2F.toInt())
                 box(c, -5f, -1.5f, 5f, 1.5f, 0xFFD32F2F.toInt())
+            }
+            3 -> {
+                oval(c, 0f, 1f, 6f, 7f, 0xFF3E5B2E.toInt())
+                box(c, -2f, -9f, 2f, -5f, 0xFF9E9E9E.toInt())
+            }
+            4 -> {
+                box(c, -4f, -3f, 4f, 8f, 0xFF8D5A2B.toInt())
+                box(c, -2f, -9f, 2f, -3f, 0xFF8D5A2B.toInt())
+                oval(c, 0f, -10f, 3f, 3f, 0xFFFFB300.toInt())
             }
             else -> {
                 c.rotate(-30f)

@@ -36,13 +36,13 @@ object Looks {
 }
 
 object W {
-    val names = arrayOf("Кулаки", "Нож", "Бита", "Пистолет", "Автомат", "Винтовка")
-    val range = floatArrayOf(34f, 40f, 54f, 0f, 0f, 0f)
-    val dmg = floatArrayOf(10f, 20f, 32f, 24f, 13f, 22f)
-    val cd = floatArrayOf(0.45f, 0.35f, 0.6f, 0.33f, 0.08f, 0.13f)
-    val spread = floatArrayOf(0f, 0f, 0f, 0.03f, 0.10f, 0.06f)
-    val gunLen = floatArrayOf(0f, 0f, 0f, 12f, 20f, 28f)
-    fun isGun(id: Int): Boolean = id >= 3
+    val names = arrayOf("Кулаки", "Нож", "Бита", "Пистолет", "Автомат", "Винтовка", "Дробовик", "Снайперка", "Катана", "Бензопила")
+    val range = floatArrayOf(34f, 40f, 54f, 0f, 0f, 0f, 0f, 0f, 62f, 50f)
+    val dmg = floatArrayOf(10f, 20f, 32f, 24f, 13f, 22f, 12f, 90f, 55f, 18f)
+    val cd = floatArrayOf(0.45f, 0.35f, 0.6f, 0.33f, 0.08f, 0.13f, 0.85f, 1.3f, 0.5f, 0.12f)
+    val spread = floatArrayOf(0f, 0f, 0f, 0.03f, 0.10f, 0.06f, 0.16f, 0.005f, 0f, 0f)
+    val gunLen = floatArrayOf(0f, 0f, 0f, 12f, 20f, 28f, 22f, 34f, 0f, 0f)
+    fun isGun(id: Int): Boolean = id in 3..7
 }
 
 class Wall(val x: Float, val y: Float, val w: Float, val h: Float)
@@ -83,7 +83,7 @@ open class Ent(var x: Float, var y: Float) {
 
 class Player(x: Float, y: Float, val look: Look) : Ent(x, y) {
     var weapon = 3
-    val owned = BooleanArray(6)
+    val owned = BooleanArray(10)
     var ammo = 24
     var kills = 0
     var flash = 0f
@@ -92,7 +92,7 @@ class Player(x: Float, y: Float, val look: Look) : Ent(x, y) {
 class Bot(x: Float, y: Float, val look: Look, val ally: Boolean) : Ent(x, y) {
     var peer: NetPeer? = null
     var name = ""
-    val owned = BooleanArray(6)
+    val owned = BooleanArray(10)
     var ammo = 24
     var kills = 0
     var note = ""
@@ -102,5 +102,5 @@ class Bot(x: Float, y: Float, val look: Look, val ally: Boolean) : Ent(x, y) {
     var flash = 0f
 }
 
-class Zombie(x: Float, y: Float, val type: Int, val variant: Int) : Ent(x, y)
+class Zombie(x: Float, y: Float, val type: Int, val variant: Int) : Ent(x, y) { var aux = 0f }
 class Dog(x: Float, y: Float) : Ent(x, y)

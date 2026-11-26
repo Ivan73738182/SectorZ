@@ -259,14 +259,16 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     // ---------- старт игры ----------
 
     private fun pickWeapon(): Int {
-        val ids = intArrayOf(1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 5)
+        val ids = intArrayOf(1, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4, 4, 5, 6, 6, 7, 8, 9)
         return ids[rnd.nextInt(ids.size)]
     }
 
     private fun randomLoot(x: Float, y: Float): Loot {
         val r = rnd.nextFloat()
-        return if (r < 0.32f) Loot(x, y, 0, 0)
-        else if (r < 0.55f) Loot(x, y, 1, 0)
+        return if (r < 0.30f) Loot(x, y, 0, 0)
+        else if (r < 0.50f) Loot(x, y, 1, 0)
+        else if (r < 0.58f) Loot(x, y, 3, 0)
+        else if (r < 0.64f) Loot(x, y, 4, 0)
         else Loot(x, y, 2, pickWeapon())
     }
 
@@ -275,7 +277,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         gameOver = false
         overT = 0f
         hitFlash = 0f
-        joyId = -1; atkId = -1; joyDx = 0f; joyDy = 0f
+        joyId = -1; atkId = -1; sprintId = -1; joyDx = 0f; joyDy = 0f
         player = Player(2460f, 2460f, Looks.players[skin])
         player.owned[0] = true
         player.owned[3] = true
@@ -321,11 +323,9 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     private fun spawnZombie() {
         val pnt = freePoint(900f)
         val r = rnd.nextFloat()
-        val type = if (r < 0.62f) 0 else if (r < 0.88f) 1 else 2
+        val type = if (r < 0.50f) 0 else if (r < 0.72f) 1 else if (r < 0.82f) 2 else if (r < 0.90f) 3 else if (r < 0.96f) 4 else 5
         val z = Zombie(pnt.x, pnt.y, type, rnd.nextInt(6))
-        if (type == 0) { z.hp = 60f; z.r = 14f }
-        else if (type == 1) { z.hp = 35f; z.r = 13f }
-        else { z.hp = 200f; z.r = 20f }
+        z.hp = zHp(type); z.r = zRadius(type)
         z.maxHp = z.hp
         z.angle = rnd.nextFloat() * 2f * PI_F
         zombies.add(z)
@@ -384,6 +384,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
             if (owner is Bot) owner.kills++ else if (byPlayer) player.kills++
             sndAt(Snd.DEATH, e.x, e.y)
             splat(e.x, e.y, ang, 10, 0xFF6B1010.toInt())
+            afterDeath(e, byPlayer)
         }
     }
 
@@ -403,11 +404,15 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     }
 
     private fun fire(x: Float, y: Float, ang: Float, w: Int, mine: Boolean, owner: Ent? = null) {
-        val a = ang + (rnd.nextFloat() - 0.5f) * 2f * W.spread[w]
         val sx = x + cos(ang) * (W.gunLen[w] + 10f)
         val sy = y + sin(ang) * (W.gunLen[w] + 10f)
-        val sp = 1500f
-        bullets.add(Bullet(sx, sy, cos(a) * sp, sin(a) * sp, W.dmg[w], if (w == 5) 0.7f else 0.5f, mine).also { it.owner = owner })
+        val sp = if (w == 7) 2600f else 1500f
+        val lf = if (w == 7) 1.0f else if (w == 5) 0.7f else if (w == 6) 0.35f else 0.5f
+        for (q in 0 until (if (w == 6) 7 else 1)) {
+            val a = ang + (rnd.nextFloat() - 0.5f) * 2f * W.spread[w]
+            bullets.add(Bullet(sx, sy, cos(a) * sp, sin(a) * sp, W.dmg[w], lf, mine).also { it.owner = owner })
+        }
+        if (owner === player) noiseT = 1.6f
         sndAt(Snd.shotFor(w), x, y)
     }
 
@@ -443,8 +448,8 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         val p = player
         if (p.dead) return
         var i = p.weapon
-        for (k in 0 until 6) {
-            i = (i + 1) % 6
+        for (k in 0 until 10) {
+            i = (i + 1) % 10
             if (p.owned[i]) { p.weapon = i; break }
         }
         p.atkT = -1f
@@ -492,7 +497,7 @@ val by = e.y
         e.hurtT = max(0f, e.hurtT - dt)
         e.cool -= dt
         var tgt: Ent? = null
-        var bd = if (e.hunt) 4000f * 4000f else detect * detect
+        var bd = if (e.hunt) 4000f * 4000f else detect * detMul * detect * detMul
         if (!player.dead) {
             val dx = player.x - e.x
             val dy = player.y - e.y
@@ -534,6 +539,10 @@ val by = e.y
     }
 
     private fun updateZombie(z: Zombie, dt: Float) {
+        if (z.type == 3) { updateSpitter(z, dt); return }
+        if (z.type == 4) { updateExploder(z, dt); return }
+        if (z.type == 5) { updateMonster(z, dt, 88f, 700f, 14f, 0.35f, 0.9f, 8f); return }
+        if (z.type == 6) { updateBoss(z, dt); return }
         if (z.type == 0) updateMonster(z, dt, 52f, 520f, 10f, 0.55f, 1.0f, 8f)
         else if (z.type == 1) updateMonster(z, dt, 100f, 600f, 7f, 0.4f, 0.7f, 8f)
         else updateMonster(z, dt, 36f, 480f, 24f, 0.7f, 1.4f, 14f)
@@ -587,14 +596,20 @@ val by = e.y
                     true
                 }
             }
+            3 -> {
+                if (gren >= 6) false else { gren++; say("Граната +1"); true }
+            }
+            4 -> {
+                if (molo >= 5) false else { molo++; say("Коктейль Молотова +1"); true }
+            }
             else -> {
                 val id = l.id
                 if (p.owned[id]) {
-                    if (id >= 3) { p.ammo += 15; say("+15 патронов"); true } else { false }
+                    if (W.isGun(id)) { p.ammo += 15; say("+15 патронов"); true } else { false }
                 } else {
                     p.owned[id] = true
                     p.weapon = id
-                    if (id >= 3) p.ammo += 12
+                    if (W.isGun(id)) p.ammo += 12
                     say("Найдено: " + W.names[id])
                     true
                 }
@@ -613,7 +628,7 @@ val by = e.y
         var moveAng = p.angle
         if (p.moving) {
             moveAng = atan2(joyDy, joyDx)
-            val sp = 175f * min(1f, mag)
+            val sp = speedFor(mag)
             moveEnt(p, cos(moveAng) * sp * dt, sin(moveAng) * sp * dt)
             p.walk += dt * (6f + sp * 0.06f)
         }
@@ -683,8 +698,8 @@ val by = e.y
                     remove = true
                     splat(b.x, b.y, atan2(-b.vy, -b.vx), 3, 0xFFFFD54F.toInt())
                 } else {
-                    val hit = hitTest(b)
-                    if (hit == null && gmode == 2) {
+                    val hit = if (b.owner is Zombie) null else hitTest(b)
+                    if (hit == null && (gmode == 2 || b.owner is Zombie)) {
                         val hh = hitHuman(b)
                         if (hh != null) {
                             val was = hh.dead
@@ -736,6 +751,7 @@ val by = e.y
         sync?.hostStep(dt)
         reviveHost()
         modeStep(dt)
+        envStep(dt)
         time += dt
         if (hitFlash > 0f) hitFlash -= dt
         if (msgT > 0f) msgT -= dt
@@ -801,11 +817,13 @@ val by = e.y
         val y1 = camY + h / 2f / s + 40f
         drawWorld(c, x0, y0, x1, y1)
         c.restore()
+        drawDark(c, w, h, s)
         val v = vignette
         if (v != null) c.drawRect(0f, 0f, w, h, v)
         if (hitFlash > 0f) c.drawColor(Color.argb(min(160, (hitFlash * 400f).toInt()), 200, 0, 0))
         drawHud(c, w, h)
         drawModeHud(c, w, h)
+        drawStage2Hud(c, w, h)
         drawUi(c, w, h)
     }
 
@@ -815,7 +833,10 @@ val by = e.y
     private fun drawZ(c: Canvas, z: Zombie) {
         c.save()
         c.translate(z.x, z.y)
+        val ghost = z.type == 5 && !z.dead
+        if (ghost) c.saveLayerAlpha(-40f, -40f, 40f, 40f, 120)
         Sprites.zombie(c, z.type, z.variant, z.angle, z.walk, z.atkT, if (z.dead) 2 else if (z.hurtT > 0f) 1 else 0, z.moving)
+        if (ghost) c.restore()
         c.restore()
         hpBar(c, z)
     }
@@ -928,9 +949,10 @@ for (l in loot) {
         Sprites.human(c, player.look, player.angle, player.walk, player.moving, player.atkT, player.flash, player.weapon, pm)
         c.restore()
         if (atkId != -1) c.drawLine(player.x, player.y, player.x + cos(player.angle) * 240f, player.y + sin(player.angle) * 240f, strokeP(0x55FF5252, 2f))
+        drawFx(c)
         drawNames(c)
         for (b in bullets) {
-            c.drawLine(b.x, b.y, b.x - b.vx * 0.025f, b.y - b.vy * 0.025f, strokeP(0xFFFFE680.toInt(), 3f))
+            c.drawLine(b.x, b.y, b.x - b.vx * 0.025f, b.y - b.vy * 0.025f, strokeP(if (b.owner is Zombie) 0xFF76FF03.toInt() else 0xFFFFE680.toInt(), 3f))
         }
         for (q in parts) {
             c.drawCircle(q.x, q.y, q.size, fillP(q.color))
@@ -1060,6 +1082,7 @@ for (l in loot) {
     private fun down(id: Int, x: Float, y: Float) {
         if (hypot(x - mbX, y - mbY) < mbR * 1.5f) { openUi(1); return }
         if (specUi(x, y)) return
+        if (stageDown(id, x, y)) return
         if (!gameOver) {
             if (hypot(x - swX, y - swY) < swR * 1.4f) { nextWeapon(); return }
             if (atkId == -1 && hypot(x - atX, y - atY) < atR * 1.5f) { atkId = id; atkDx = 0f; atkDy = 0f; return }
@@ -1113,6 +1136,7 @@ for (l in loot) {
     private fun release(id: Int) {
         if (id == joyId) { joyId = -1; joyDx = 0f; joyDy = 0f }
         if (id == atkId) { atkId = -1; atkDx = 0f; atkDy = 0f }
+        if (id == sprintId) sprintId = -1
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -1132,7 +1156,7 @@ for (l in loot) {
                 release(e.getPointerId(e.actionIndex))
             }
             MotionEvent.ACTION_CANCEL -> {
-                joyId = -1; atkId = -1; joyDx = 0f; joyDy = 0f
+                joyId = -1; atkId = -1; sprintId = -1; joyDx = 0f; joyDy = 0f
             }
         }
         return true
@@ -1163,7 +1187,7 @@ for (l in loot) {
     fun pause() {
         running = false
         removeCallbacks(this)
-        joyId = -1; atkId = -1; joyDx = 0f; joyDy = 0f
+        joyId = -1; atkId = -1; sprintId = -1; joyDx = 0f; joyDy = 0f
     }
 
     private fun moveAtk(x: Float, y: Float) {
@@ -1276,8 +1300,8 @@ for (l in loot) {
 
     private fun cycleBot(b: Bot) {
         var i = b.weapon
-        for (k in 0 until 6) {
-            i = (i + 1) % 6
+        for (k in 0 until 10) {
+            i = (i + 1) % 10
             if (b.owned[i]) { b.weapon = i; break }
         }
         b.atkT = -1f
@@ -1302,12 +1326,13 @@ for (l in loot) {
             }
             else -> {
                 val id = l.id
+                if (id >= 8) return false
                 if (b.owned[id]) {
-                    if (id >= 3) { b.ammo += 15; b.say("+15 патронов"); true } else { false }
+                    if (W.isGun(id)) { b.ammo += 15; b.say("+15 патронов"); true } else { false }
                 } else {
                     b.owned[id] = true
                     b.weapon = id
-                    if (id >= 3) b.ammo += 12
+                    if (W.isGun(id)) b.ammo += 12
                     b.say("Найдено: " + W.names[id])
                     true
                 }
@@ -1594,6 +1619,7 @@ for (l in loot) {
     fun spawnPoint(): PointF = if (gmode == 2) freePoint(0f) else PointF(player.x, player.y)
 
     private fun afterReset() {
+        resetWorld()
         wave = 0; waveT = 4f; pvpOver = false; specIdx = 0; pvpT = 0f; zStep = 0
         zoneX = WORLD / 2f; zoneY = WORLD / 2f; zoneR = 3400f
         zTX = zoneX; zTY = zoneY; zTR = zoneR; zFX = zoneX; zFY = zoneY; zFR = zoneR
@@ -1651,12 +1677,12 @@ for (l in loot) {
                 g.hp = 40f + wave * 3f; g.maxHp = g.hp; g.r = 11f; g.hunt = true
                 dogs.add(g)
             } else {
-                val type = if (wave >= 5 && q < 0.30f) 2 else if (wave >= 3 && q < 0.55f) 1 else 0
+                val type = waveType(q)
                 val z = Zombie(sx, sy, type, rnd.nextInt(6))
                 val k = 1f + wave * 0.06f
-                z.hp = (if (type == 0) 60f else if (type == 1) 35f else 200f) * k
+                z.hp = zHp(type) * k
                 z.maxHp = z.hp
-                z.r = if (type == 0) 14f else if (type == 1) 13f else 20f
+                z.r = zRadius(type)
                 z.angle = rnd.nextFloat() * 2f * PI_F
                 z.hunt = true
                 zombies.add(z)
@@ -1669,6 +1695,7 @@ for (l in loot) {
             val y = h.y + sin(a) * 160f
             if (!blocked(x, y, 16f)) loot.add(randomLoot(x, y))
         }
+        if (wave % 5 == 0) spawnBoss()
         say("Волна " + wave + "!")
     }
 
@@ -1842,6 +1869,439 @@ for (l in loot) {
     private fun drawNames(c: Canvas) {
         if (!player.dead) txt(c, myName, player.x, player.y + 34f, 15f, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
         for (b in bots) if (!b.dead && b.name.isNotEmpty()) txt(c, b.name, b.x, b.y + 34f, 15f, 0xFF80D8FF.toInt(), Paint.Align.CENTER)
+    }
+
+
+    // ===== ЭТАП 2-3: бег, гранаты, ночь, погода, скрытность, новые зомби, босс =====
+
+    class Thrown(var x: Float, var y: Float, var vx: Float, var vy: Float, val kind: Int) { var t = 0f }
+    class Fire(val x: Float, val y: Float, val r: Float) { var t = 0f }
+
+    var dayT = 0.12f
+    var weather = 0
+    private var weatherT = 70f
+    private var stam = 100f
+    private var tired = false
+    private var sprinting = false
+    private var sprintId = -1
+    private var gren = 2
+    private var molo = 1
+    private var noiseT = 0f
+    private var detMul = 1f
+    private var throwCd = 0f
+    private val thrown = ArrayList<Thrown>()
+    private val fires = ArrayList<Fire>()
+    private val booms = ArrayList<FloatArray>()
+    private val lightP = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var lightInit = false
+
+    private fun resetWorld() {
+        thrown.clear(); fires.clear(); booms.clear()
+        gren = 2; molo = 1; stam = 100f; tired = false; sprinting = false; sprintId = -1
+        dayT = 0.12f; weather = 0; weatherT = 70f; noiseT = 0f; throwCd = 0f
+    }
+
+    fun zHp(t: Int): Float = if (t == 0) 60f else if (t == 1) 35f else if (t == 2) 200f else if (t == 3) 45f else if (t == 4) 40f else if (t == 5) 45f else 1200f
+
+    fun zRadius(t: Int): Float = if (t == 0) 14f else if (t == 1) 13f else if (t == 2) 20f else if (t == 3) 13f else if (t == 4) 15f else if (t == 5) 13f else 34f
+
+    private fun waveType(q: Float): Int =
+        if (wave >= 7 && q < 0.08f) 5
+        else if (wave >= 6 && q < 0.16f) 4
+        else if (wave >= 4 && q < 0.26f) 3
+        else if (wave >= 5 && q < 0.38f) 2
+        else if (wave >= 3 && q < 0.62f) 1
+        else 0
+
+    private fun speedFor(mag: Float): Float {
+        var sp = 175f * min(1f, mag)
+        if (sprinting) sp *= 1.5f
+        if (tired) sp *= 0.8f
+        return sp
+    }
+
+    private fun envStep(dt: Float) {
+        // время суток
+        val old = dayT
+        dayT += dt / 240f
+        if (dayT >= 1f) dayT -= 1f
+        if (old < 0.5f && dayT >= 0.5f && gmode == 0 && !bossAlive() && !player.dead) spawnBoss()
+        // погода
+        weatherT -= dt
+        if (weatherT <= 0f) {
+            weatherT = 60f + rnd.nextFloat() * 60f
+            val r = rnd.nextFloat()
+            weather = if (r < 0.5f) 0 else if (r < 0.8f) 1 else 2
+            say(if (weather == 0) "Погода прояснилась" else if (weather == 1) "Начался дождь" else "Опустился туман")
+        }
+        // выносливость
+        val want = sprintId != -1 && player.moving && !player.dead && !tired
+        sprinting = want
+        if (want) {
+            stam -= 28f * dt
+            if (stam <= 0f) { stam = 0f; tired = true; sprinting = false }
+        } else {
+            stam = min(100f, stam + (if (player.moving) 12f else 24f) * dt)
+            if (tired && stam >= 30f) tired = false
+        }
+        // скрытность
+        var m = 1f
+        if (!player.moving) m = 0.55f
+        if (sprinting) m = 1.6f
+        if (noiseT > 0f) { m = max(m, 1.9f); noiseT -= dt }
+        val night = 0.5f - 0.5f * cos(2f * PI_F * dayT)
+        detMul = m * (1f - 0.25f * night)
+        throwCd -= dt
+        updateThrown(dt)
+    }
+
+    private fun nearestHuman(e: Ent, range: Float): Ent? {
+        var best: Ent? = null
+        var bd = range * range
+        if (!player.dead) {
+            val dx = player.x - e.x; val dy = player.y - e.y
+            val dd = dx * dx + dy * dy
+            if (dd < bd) { bd = dd; best = player }
+        }
+        for (b in bots) {
+            if (b.dead) continue
+            val dx = b.x - e.x; val dy = b.y - e.y
+            val dd = dx * dx + dy * dy
+            if (dd < bd) { bd = dd; best = b }
+        }
+        return best
+    }
+
+    // ---------- гранаты и огонь ----------
+
+    private fun throwItem(kind: Int) {
+        if (player.dead || throwCd > 0f) return
+        if (kind == 0 && gren <= 0) { say("Нет гранат"); return }
+        if (kind == 1 && molo <= 0) { say("Нет коктейлей"); return }
+        if (kind == 0) gren-- else molo--
+        throwCd = 0.6f
+        val a = player.angle
+        thrown.add(Thrown(player.x + cos(a) * 18f, player.y + sin(a) * 18f, cos(a) * 620f, sin(a) * 620f, kind))
+        sndAt(Snd.SWING, player.x, player.y)
+    }
+
+    private fun damageQuiet(e: Ent, dmg: Float, byPlayer: Boolean) {
+        if (e.dead) return
+        e.hp -= dmg
+        e.hurtT = 0.12f
+        if (e.hp <= 0f) {
+            e.dead = true
+            e.deadT = 0f
+            e.atkT = -1f
+            if (byPlayer) player.kills++
+            sndAt(Snd.DEATH, e.x, e.y)
+            splat(e.x, e.y, 0f, 8, 0xFF6B1010.toInt())
+            afterDeath(e, byPlayer)
+        }
+    }
+
+    private fun afterDeath(e: Ent, byPlayer: Boolean) {
+        if (e !is Zombie) return
+        if (e.type == 4) explodeAt(e.x, e.y, 125f, 55f, byPlayer, true, true)
+        if (e.type == 6) {
+            say("БОСС повержен!")
+            for (k in 0 until 4) {
+                val a = k * 1.57f
+                val lx = e.x + cos(a) * 40f
+                val ly = e.y + sin(a) * 40f
+                if (!blocked(lx, ly, 14f)) loot.add(if (k == 0) Loot(lx, ly, 2, 6 + rnd.nextInt(4)) else randomLoot(lx, ly))
+            }
+        }
+    }
+
+    private fun explodeAt(x: Float, y: Float, rad: Float, dmg: Float, byPlayer: Boolean, hitM: Boolean, hitH: Boolean) {
+        booms.add(floatArrayOf(x, y, 0f, rad))
+        sndAt(Snd.BOOM, x, y)
+        splat(x, y, 0f, 14, 0xFFFFA000.toInt())
+        if (hitM) {
+            for (z in zombies) {
+                if (z.dead) continue
+                val dd = hypot(z.x - x, z.y - y)
+                if (dd < rad + z.r) damageQuiet(z, dmg * (1f - 0.6f * dd / (rad + z.r)), byPlayer)
+            }
+            for (g in dogs) {
+                if (g.dead) continue
+                val dd = hypot(g.x - x, g.y - y)
+                if (dd < rad + g.r) damageQuiet(g, dmg * (1f - 0.6f * dd / (rad + g.r)), byPlayer)
+            }
+        }
+        if (hitH) {
+            if (!player.dead) {
+                val dd = hypot(player.x - x, player.y - y)
+                if (dd < rad + player.r) hurtAlly(player, dmg * (1f - 0.6f * dd / (rad + player.r)) * (if (byPlayer) 0.35f else 1f), atan2(player.y - y, player.x - x))
+            }
+            for (b in bots) {
+                if (b.dead) continue
+                val dd = hypot(b.x - x, b.y - y)
+                if (dd < rad + b.r) hurtAlly(b, dmg * (1f - 0.6f * dd / (rad + b.r)), atan2(b.y - y, b.x - x))
+            }
+        }
+    }
+
+    private fun updateThrown(dt: Float) {
+        val it = thrown.iterator()
+        while (it.hasNext()) {
+            val q = it.next()
+            q.t += dt
+            val f = 1f - min(1f, 1.8f * dt)
+            q.vx *= f; q.vy *= f
+            val nx = q.x + q.vx * dt
+            val ny = q.y + q.vy * dt
+            if (blocked(nx, q.y, 3f)) q.vx = -q.vx * 0.4f else q.x = nx
+            if (blocked(q.x, ny, 3f)) q.vy = -q.vy * 0.4f else q.y = ny
+            if (q.kind == 0 && q.t >= 1.7f) {
+                explodeAt(q.x, q.y, 150f, 140f, true, true, gmode == 2)
+                if (gmode != 2 && !player.dead) {
+                    val dd = hypot(player.x - q.x, player.y - q.y)
+                    if (dd < 150f) hurtAlly(player, 30f * (1f - dd / 150f), atan2(player.y - q.y, player.x - q.x))
+                }
+                it.remove()
+            } else if (q.kind == 1 && q.t >= 0.9f) {
+                fires.add(Fire(q.x, q.y, 92f))
+                sndAt(Snd.BOOM, q.x, q.y)
+                it.remove()
+            }
+        }
+        val fi = fires.iterator()
+        while (fi.hasNext()) {
+            val f = fi.next()
+            f.t += dt
+            if (f.t >= 6f) { fi.remove(); continue }
+            for (z in zombies) if (!z.dead && hypot(z.x - f.x, z.y - f.y) < f.r + z.r) damageQuiet(z, 24f * dt, true)
+            for (g in dogs) if (!g.dead && hypot(g.x - f.x, g.y - f.y) < f.r + g.r) damageQuiet(g, 24f * dt, true)
+            if (gmode == 2) for (b in bots) if (!b.dead && hypot(b.x - f.x, b.y - f.y) < f.r + b.r) hurtAlly(b, 12f * dt, 0f)
+            if (parts.size < 300 && rnd.nextInt(3) == 0) {
+                val a = rnd.nextFloat() * 2f * PI_F
+                val rr = rnd.nextFloat() * f.r
+                parts.add(Particle(f.x + cos(a) * rr, f.y + sin(a) * rr, 0f, -30f, 0.5f, 0xFFFF9800.toInt(), 3f))
+            }
+        }
+        val bi = booms.iterator()
+        while (bi.hasNext()) {
+            val b = bi.next()
+            b[2] += dt
+            if (b[2] > 0.35f) bi.remove()
+        }
+    }
+
+    private fun drawFx(c: Canvas) {
+        for (f in fires) {
+            val k = 1f - f.t / 6f
+            val fl = 0.9f + 0.1f * sin(f.t * 14f)
+            c.drawCircle(f.x, f.y, f.r * fl, fillP(Color.argb((70 + 60 * k).toInt(), 255, 109, 0)))
+            c.drawCircle(f.x, f.y, f.r * 0.6f * fl, fillP(Color.argb((90 + 80 * k).toInt(), 255, 179, 0)))
+        }
+        for (q in thrown) {
+            if (q.kind == 0) {
+                c.drawCircle(q.x, q.y, 5f, fillP(0xFF3E5B2E.toInt()))
+                c.drawCircle(q.x, q.y, 5f, strokeP(0xFF1B2A12.toInt(), 1.5f))
+            } else {
+                c.drawCircle(q.x, q.y, 5f, fillP(0xFF8D5A2B.toInt()))
+                c.drawCircle(q.x + 3f, q.y - 3f, 3f, fillP(0xFFFFB300.toInt()))
+            }
+        }
+        for (b in booms) {
+            val k = b[2] / 0.35f
+            c.drawCircle(b[0], b[1], b[3] * (0.3f + 0.7f * k), fillP(Color.argb((170 * (1f - k)).toInt(), 255, 170, 40)))
+            c.drawCircle(b[0], b[1], b[3] * k, strokeP(Color.argb((220 * (1f - k)).toInt(), 255, 240, 180), 3f))
+        }
+    }
+
+    // ---------- кнопки и HUD ----------
+
+    private fun sbX(): Float = width - 34f * d
+    private fun sbY(i: Int): Float = 168f * d + i * 54f * d
+
+    private fun stageDown(id: Int, x: Float, y: Float): Boolean {
+        if (gameOver || sync?.client == true) return false
+        for (i in 0..2) {
+            if (hypot(x - sbX(), y - sbY(i)) < 30f * d) {
+                if (i == 0) sprintId = id else if (i == 1) throwItem(0) else throwItem(1)
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun drawStage2Hud(c: Canvas, w: Float, h: Float) {
+        if (sync?.client != true) {
+            val bx = 16f * d
+            val by = 60f * d + 19f * d
+            c.drawRoundRect(RectF(bx, by, bx + 190f * d, by + 7f * d), 3f * d, 3f * d, fillP(0x88000000.toInt()))
+            c.drawRoundRect(RectF(bx, by, bx + 190f * d * stam / 100f, by + 7f * d), 3f * d, 3f * d, fillP(if (tired) 0xFFFF7043.toInt() else 0xFFFFCA28.toInt()))
+            val lab = arrayOf("БЕГ", "ГРАН " + gren, "КОКТ " + molo)
+            for (i in 0..2) {
+                val on = (i == 0 && sprintId != -1) || (i == 1 && gren > 0) || (i == 2 && molo > 0)
+                c.drawCircle(sbX(), sbY(i), 24f * d, fillP(if (i == 0 && sprintId != -1) 0xCCFFCA28.toInt() else if (on) 0x88455A64.toInt() else 0x44455A64))
+                c.drawCircle(sbX(), sbY(i), 24f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+                txt(c, lab[i], sbX(), sbY(i) + 4f * d, 10f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            }
+        }
+        val night = 0.5f - 0.5f * cos(2f * PI_F * dayT)
+        val tl = (if (night > 0.6f) "Ночь" else if (night > 0.3f) "Сумерки" else "День") + (if (weather == 1) ", дождь" else if (weather == 2) ", туман" else "")
+        val stl = if (sprinting) "Шумно" else if (noiseT > 0f) "Шумно" else if (!player.moving) "Тихо" else "Заметен"
+        txt(c, tl + "  |  " + stl, 16f * d, h - 8f * d, 12f * d, 0xFFB0BEC5.toInt(), Paint.Align.LEFT)
+        var boss: Zombie? = null
+        for (z in zombies) if (z.type == 6 && !z.dead) { boss = z; break }
+        if (boss != null) {
+            val bw = w * 0.4f
+            val l = w / 2f - bw / 2f
+            val t = 72f * d
+            c.drawRoundRect(RectF(l, t, l + bw, t + 10f * d), 4f * d, 4f * d, fillP(0xAA000000.toInt()))
+            val k = (boss.hp / boss.maxHp).coerceIn(0f, 1f)
+            c.drawRoundRect(RectF(l, t, l + bw * k, t + 10f * d), 4f * d, 4f * d, fillP(0xFFB71C1C.toInt()))
+            txt(c, "БОСС", w / 2f, t - 3f * d, 12f * d, 0xFFFFCDD2.toInt(), Paint.Align.CENTER)
+        }
+    }
+
+    // ---------- ночь, фонарик, погода ----------
+
+    private fun initLight() {
+        lightInit = true
+        lightP.shader = RadialGradient(0f, 0f, 100f, intArrayOf(0xFF000000.toInt(), 0xCC000000.toInt(), 0x00000000), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+        lightP.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+    }
+
+    private fun hole(c: Canvas, sx: Float, sy: Float, r: Float) {
+        c.save()
+        c.translate(sx, sy)
+        val k = r / 100f
+        c.scale(k, k)
+        c.drawCircle(0f, 0f, 100f, lightP)
+        c.restore()
+    }
+
+    private fun drawDark(c: Canvas, w: Float, h: Float, s: Float) {
+        if (!lightInit) initLight()
+        val night = 0.5f - 0.5f * cos(2f * PI_F * dayT)
+        var da = 0.82f * night
+        if (weather == 1) da += 0.12f
+        if (weather == 2) da += 0.05f
+        da = min(0.92f, da)
+        val px = (player.x - camX) * s + w / 2f
+        val py = (player.y - camY) * s + h / 2f
+        if (da > 0.03f) {
+            val sc = c.saveLayer(0f, 0f, w, h, null)
+            c.drawColor(Color.argb((da * 255f).toInt(), 4, 6, 18))
+            if (!player.dead) {
+                hole(c, px, py, 95f * s)
+                if (da > 0.15f) {
+                    c.save()
+                    c.translate(px, py)
+                    c.rotate(Math.toDegrees(player.angle.toDouble()).toFloat())
+                    val L = 430f * s
+                    val path = Path()
+                    path.moveTo(0f, 0f)
+                    path.lineTo(L, -L * 0.5f)
+                    path.lineTo(L, L * 0.5f)
+                    path.close()
+                    c.clipPath(path)
+                    hole(c, 0f, 0f, L)
+                    c.restore()
+                }
+            }
+            for (f in fires) hole(c, (f.x - camX) * s + w / 2f, (f.y - camY) * s + h / 2f, f.r * 1.8f * s)
+            for (b in booms) hole(c, (b[0] - camX) * s + w / 2f, (b[1] - camY) * s + h / 2f, b[3] * 1.6f * s)
+            c.restoreToCount(sc)
+        }
+        if (weather == 2) {
+            val sc = c.saveLayer(0f, 0f, w, h, null)
+            c.drawColor(Color.argb(120, 176, 188, 194))
+            hole(c, px, py, 150f * s)
+            c.restoreToCount(sc)
+        }
+        if (weather == 1) {
+            val p = strokeP(0x55B3E5FC, 1.5f * d)
+            for (i in 0 until 90) {
+                val x = (i * 97.3f + time * 60f) % w
+                val y = (i * 53.7f + time * 900f) % h
+                c.drawLine(x, y, x - 5f * d, y + 16f * d, p)
+            }
+        }
+    }
+
+    // ---------- новые зомби и босс ----------
+
+    private fun bossAlive(): Boolean {
+        for (z in zombies) if (z.type == 6 && !z.dead) return true
+        return false
+    }
+
+    private fun spawnBoss() {
+        var sx = player.x + 700f
+        var sy = player.y
+        for (t in 0 until 30) {
+            val a = rnd.nextFloat() * 2f * PI_F
+            val x = (player.x + cos(a) * 750f).coerceIn(80f, WORLD - 80f)
+            val y = (player.y + sin(a) * 750f).coerceIn(80f, WORLD - 80f)
+            if (!blocked(x, y, 36f)) { sx = x; sy = y; break }
+        }
+        val z = Zombie(sx, sy, 6, 0)
+        z.hp = zHp(6) + wave * 120f
+        z.maxHp = z.hp
+        z.r = zRadius(6)
+        z.hunt = true
+        z.aux = 4f
+        zombies.add(z)
+        say("БОСС! Берегись!")
+        sndAt(Snd.GROAN, sx, sy)
+    }
+
+    private fun updateSpitter(z: Zombie, dt: Float) {
+        if (z.dead) { z.deadT += dt; return }
+        if (!z.hunt && !nearHuman(z)) return
+        z.hurtT = max(0f, z.hurtT - dt)
+        z.aux -= dt
+        val t = nearestHuman(z, if (z.hunt) 900f else 560f * detMul)
+        if (t == null) { wander(z, 20f, dt); return }
+        val ang = atan2(t.y - z.y, t.x - z.x)
+        val dist = hypot(t.x - z.x, t.y - z.y)
+        turn(z, ang, 8f, dt)
+        if (dist > 260f) steer(z, ang, 48f, dt, true)
+        else if (dist < 150f) steer(z, ang + PI_F, 55f, dt, false)
+        else z.moving = false
+        if (z.aux <= 0f && dist < 430f) {
+            z.aux = 2.2f
+            z.atkT = 0f
+            val sx = z.x + cos(z.angle) * 16f
+            val sy = z.y + sin(z.angle) * 16f
+            bullets.add(Bullet(sx, sy, cos(z.angle) * 520f, sin(z.angle) * 520f, 12f, 1.0f, false).also { it.owner = z })
+            sndAt(Snd.GROAN, z.x, z.y)
+        }
+        if (z.atkT >= 0f) { z.atkT += dt / 0.4f; if (z.atkT >= 1f) z.atkT = -1f }
+    }
+
+    private fun updateExploder(z: Zombie, dt: Float) {
+        if (z.dead) { z.deadT += dt; return }
+        if (!z.hunt && !nearHuman(z)) return
+        z.hurtT = max(0f, z.hurtT - dt)
+        val t = nearestHuman(z, if (z.hunt) 900f else 560f * detMul)
+        if (t == null) { wander(z, 25f, dt); return }
+        val ang = atan2(t.y - z.y, t.x - z.x)
+        steer(z, ang, 96f, dt, true)
+        if (hypot(t.x - z.x, t.y - z.y) < z.r + t.r + 12f) {
+            z.dead = true
+            z.deadT = 0f
+            explodeAt(z.x, z.y, 125f, 55f, false, false, true)
+        }
+    }
+
+    private fun updateBoss(z: Zombie, dt: Float) {
+        updateMonster(z, dt, 46f, 900f, 38f, 0.8f, 1.5f, 18f)
+        if (z.dead) return
+        z.aux -= dt
+        if (z.aux <= 0f) {
+            val t = nearestHuman(z, 240f)
+            if (t != null) {
+                z.aux = 6f
+                explodeAt(z.x, z.y, 220f, 30f, false, false, true)
+            } else z.aux = 0.5f
+        }
     }
 
 }

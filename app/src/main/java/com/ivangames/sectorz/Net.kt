@@ -318,8 +318,8 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         o.writeShort(ammo.coerceIn(0, 30000))
         o.writeShort(kills.coerceIn(0, 30000))
         var m = 0
-        for (k in 0 until 6) if (owned[k]) m = m or (1 shl k)
-        o.writeByte(m)
+        for (k in 0 until 10) if (owned[k]) m = m or (1 shl k)
+        o.writeShort(m)
         o.writeUTF(name)
     }
 
@@ -509,9 +509,9 @@ val pr = NetPeer(s)
                 p.weapon = i.readByte().toInt()
                 p.ammo = i.readShort().toInt()
                 p.kills = i.readShort().toInt()
-                val m = i.readByte().toInt()
+                val m = i.readShort().toInt()
                 i.readUTF()
-                for (q in 0 until 6) p.owned[q] = (m and (1 shl q)) != 0
+                for (q in 0 until 10) p.owned[q] = (m and (1 shl q)) != 0
                 lines.add(g.myName + " (ты): " + p.kills)
             } else {
                 val lk = Looks.players[sk]
@@ -526,7 +526,7 @@ val pr = NetPeer(s)
                 bt.weapon = i.readByte().toInt()
                 i.readShort()
                 val kl = i.readShort().toInt()
-                i.readByte()
+                i.readShort() // m10
                 bt.name = i.readUTF()
                 lines.add(bt.name + ": " + kl)
                 newBots.add(bt)
@@ -543,7 +543,7 @@ val pr = NetPeer(s)
                 z = g.zombies[k]
             } else {
                 z = Zombie(0f, 0f, type, variant)
-                z.r = if (type == 0) 14f else if (type == 1) 13f else 20f
+                z.r = g.zRadius(type)
                 init = true
                 if (k < g.zombies.size) g.zombies[k] = z else g.zombies.add(z)
             }
