@@ -368,7 +368,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
 
     private fun hitEnemy(e: Ent, dmg: Float, ang: Float, byPlayer: Boolean, owner: Ent? = null) {
         if (e.dead) return
-        e.hp -= dmg
+        e.hp -= if (byPlayer) dmg * (1f + 0.1f * upDmg) else dmg
         e.hurtT = 0.15f
         sndAt(Snd.HIT, e.x, e.y)
         splat(e.x, e.y, ang, 4, 0xFF8B1A1A.toInt())
@@ -380,12 +380,13 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
             if (owner is Bot) owner.kills++ else if (byPlayer) player.kills++
             sndAt(Snd.DEATH, e.x, e.y)
             splat(e.x, e.y, ang, 10, 0xFF6B1010.toInt())
-            afterDeath(e, byPlayer)
+            afterDeath(e, byPlayer && owner !is Bot)
         }
     }
 
     private fun hurtAlly(t: Ent, dmg: Float, ang: Float) {
         if (t.dead) return
+        if (t === player && driving != null) return
         t.hp -= dmg
         t.hurtT = 0.2f
         sndAt(Snd.HURT, t.x, t.y)
@@ -618,7 +619,8 @@ val by = e.y
         p.hurtT = max(0f, p.hurtT - dt)
         p.cool -= dt
         p.flash -= dt
-        if (p.dead) { p.deadT += dt; p.moving = false; return }
+        if (p.dead) { p.deadT += dt * reviveMul(p); p.moving = false; driving = null; return }
+        if (driving != null) { driveStep(dt); return }
         val mag = hypot(joyDx, joyDy)
         p.moving = mag > 0.15f
         var moveAng = p.angle
@@ -737,12 +739,12 @@ val by = e.y
             l.t += dt
             if (player.dead) continue
             if (abs(l.x - player.x) > 30f || abs(l.y - player.y) > 30f) continue
-            if (pickup(l)) { it.remove(); sndAt(Snd.PICKUP, player.x, player.y) }
+            if (pickup(l)) { it.remove(); sndAt(Snd.PICKUP, player.x, player.y); missionAdd(1, 1f) }
         }
     }
 
     private fun update(dt: Float) {
-        if (uiMode != 0 && sync == null) return
+        if ((uiMode != 0 || shopOpen) && sync == null) return
         if (sync?.client == true) { updateClientView(dt); return }
         sync?.hostStep(dt)
         reviveHost()
@@ -820,6 +822,7 @@ val by = e.y
         drawHud(c, w, h)
         drawModeHud(c, w, h)
         drawStage2Hud(c, w, h)
+        drawStage4Hud(c, w, h)
         drawUi(c, w, h)
     }
 
@@ -946,6 +949,7 @@ for (l in loot) {
         c.restore()
         if (atkId != -1) c.drawLine(player.x, player.y, player.x + cos(player.angle) * 240f, player.y + sin(player.angle) * 240f, strokeP(0x55FF5252, 2f))
         drawFx(c)
+        drawFx2(c)
         drawNames(c)
         for (b in bullets) {
             c.drawLine(b.x, b.y, b.x - b.vx * 0.025f, b.y - b.vy * 0.025f, strokeP(if (b.owner is Zombie) 0xFF76FF03.toInt() else 0xFFFFE680.toInt(), 3f))
@@ -1078,6 +1082,7 @@ for (l in loot) {
     private fun down(id: Int, x: Float, y: Float) {
         if (hypot(x - mbX, y - mbY) < mbR * 1.5f) { openUi(1); return }
         if (specUi(x, y)) return
+        if (stage4Down(id, x, y)) return
         if (stageDown(id, x, y)) return
         if (!gameOver) {
             if (hypot(x - swX, y - swY) < swR * 1.4f) { nextWeapon(); return }
@@ -1341,7 +1346,7 @@ for (l in loot) {
         b.cool -= dt
         b.flash -= dt
         if (b.dead) {
-            b.deadT += dt
+            b.deadT += dt * reviveMul(b)
             b.moving = false
             b.atkT = -1f
             if (b.deadT > 6f && gmode != 2) reviveBot(b)
@@ -1895,6 +1900,7 @@ for (l in loot) {
         thrown.clear(); fires.clear(); booms.clear()
         gren = 2; molo = 1; stam = 100f; tired = false; sprinting = false; sprintId = -1
         dayT = 0.12f; weather = 0; weatherT = 70f; noiseT = 0f; throwCd = 0f
+        resetStage4()
     }
 
     fun zHp(t: Int): Float = if (t == 0) 60f else if (t == 1) 35f else if (t == 2) 200f else if (t == 3) 45f else if (t == 4) 40f else if (t == 5) 45f else 1200f
@@ -1949,6 +1955,7 @@ for (l in loot) {
         detMul = m * (1f - 0.25f * night)
         throwCd -= dt
         updateThrown(dt)
+        stage4Step(dt)
     }
 
     private fun nearestHuman(e: Ent, range: Float): Ent? {
@@ -1997,6 +2004,7 @@ for (l in loot) {
     }
 
     private fun afterDeath(e: Ent, byPlayer: Boolean) {
+        if (byPlayer) rewardKill(e)
         if (e !is Zombie) return
         if (e.type == 4) explodeAt(e.x, e.y, 125f, 55f, byPlayer, true, true)
         if (e.type == 6) {
@@ -2300,6 +2308,416 @@ for (l in loot) {
         }
     }
 
+
+    // ===== ЭТАП 4-5: монеты, магазин, ловушки, миссии, машина, чат, команда =====
+
+    class Trap(val x: Float, val y: Float)
+    class Barr(val w: Wall) { var t = 45f }
+    class Car(var x: Float, var y: Float) { var a = 0f; var v = 0f; var hp = 300f }
+    class ChatL(val s: String, val ts: Long)
+
+    var coins = 0
+    private var xp = 0
+    private var upHp = 0
+    private var upDmg = 0
+    private var traps = 2
+    private var barrs = 2
+    private val trapL = ArrayList<Trap>()
+    private val barrL = ArrayList<Barr>()
+    private val cars = ArrayList<Car>()
+    private var driving: Car? = null
+    private var shopOpen = false
+    private var chatOpen = false
+    private val shopR = Array(7) { RectF() }
+    private val chatR = Array(8) { RectF() }
+    val chatLines = java.util.concurrent.CopyOnWriteArrayList<ChatL>()
+    var chatSeq = 0
+    var chatLine = ""
+    private var mType = 0
+    private var mTarget = 10
+    private var mProg = 0f
+    private var mCount = 0
+    private val phrases = arrayOf("Помогите!", "Иду к вам", "Осторожно, зомби!", "Тут лут!", "Спасибо!", "Отступаем!")
+
+    private fun loadProg() {
+        val pf = context.getSharedPreferences("sectorz", Context.MODE_PRIVATE)
+        coins = pf.getInt("coins", 0)
+        xp = pf.getInt("xp", 0)
+        upHp = pf.getInt("upHp", 0)
+        upDmg = pf.getInt("upDmg", 0)
+    }
+
+    private fun saveProg() {
+        context.getSharedPreferences("sectorz", Context.MODE_PRIVATE).edit()
+            .putInt("coins", coins).putInt("xp", xp).putInt("upHp", upHp).putInt("upDmg", upDmg).apply()
+    }
+
+    private fun level(): Int = 1 + xp / 100
+
+    private fun resetStage4() {
+        loadProg()
+        player.maxHp = 100f + upHp * 20f + (level() - 1) * 5f
+        player.hp = player.maxHp
+        traps = 2; barrs = 2
+        trapL.clear()
+        for (b in barrL) removeWall(b.w)
+        barrL.clear()
+        cars.clear()
+        driving = null
+        shopOpen = false; chatOpen = false
+        for (i in 0 until 3) {
+            val q = freePoint(300f)
+            val cr = Car(q.x, q.y)
+            cr.a = rnd.nextFloat() * 2f * PI_F
+            cars.add(cr)
+        }
+        mCount = 0
+        newMission()
+    }
+
+    private fun removeWall(w: Wall) {
+        walls.remove(w)
+        for (gl in grid) gl.remove(w)
+    }
+
+    // ---------- награды и миссии ----------
+
+    private fun rewardKill(e: Ent) {
+        var g = 2
+        if (e is Zombie) {
+            g = if (e.type == 0) 2 else if (e.type == 1) 3 else if (e.type == 2) 6 else if (e.type == 3) 4 else if (e.type == 4) 5 else if (e.type == 5) 5 else 150
+        } else if (e is Dog) {
+            g = 3
+        }
+        val old = level()
+        coins += g
+        xp += g * 2
+        if (level() > old) {
+            coins += 20
+            player.maxHp += 5f
+            say("Уровень " + level() + "! +20 монет")
+        }
+        saveProg()
+        missionAdd(0, 1f)
+    }
+
+    private fun newMission() {
+        mType = rnd.nextInt(3)
+        mProg = 0f
+        mTarget = if (mType == 0) 8 + rnd.nextInt(10) else if (mType == 1) 3 + rnd.nextInt(3) else 60 + rnd.nextInt(60)
+    }
+
+    private fun missionText(): String {
+        val t = if (mType == 0) "Убей зомби" else if (mType == 1) "Собери предметы" else "Продержись (с)"
+        return "Миссия: " + t + " " + mProg.toInt() + "/" + mTarget
+    }
+
+    private fun missionAdd(t: Int, amt: Float) {
+        if (gmode != 0 || mType != t) return
+        mProg += amt
+        if (mProg >= mTarget) {
+            val r = 25 + mCount * 5
+            coins += r
+            mCount++
+            saveProg()
+            say("Миссия выполнена! +" + r + " монет")
+            newMission()
+        }
+    }
+
+    // ---------- шаг мира ----------
+
+    private fun stage4Step(dt: Float) {
+        missionAdd(2, dt)
+        val bi = barrL.iterator()
+        while (bi.hasNext()) {
+            val b = bi.next()
+            b.t -= dt
+            if (b.t <= 0f) { removeWall(b.w); bi.remove() }
+        }
+        val ti = trapL.iterator()
+        while (ti.hasNext()) {
+            val t = ti.next()
+            var hit = false
+            for (z in zombies) if (!z.dead && hypot(z.x - t.x, z.y - t.y) < 22f + z.r) { damageQuiet(z, 80f, true); hit = true }
+            for (g in dogs) if (!g.dead && hypot(g.x - t.x, g.y - t.y) < 22f + g.r) { damageQuiet(g, 80f, true); hit = true }
+            if (hit) { sndAt(Snd.HIT, t.x, t.y); splat(t.x, t.y, 0f, 6, 0xFFB0BEC5.toInt()); ti.remove() }
+        }
+    }
+
+    private fun reviveMul(e: Ent): Float {
+        if (sync == null) return 1f
+        if (e !== player && !player.dead && hypot(player.x - e.x, player.y - e.y) < 90f) return 3f
+        for (b in bots) if (b.peer != null && !b.dead && b !== e && hypot(b.x - e.x, b.y - e.y) < 90f) return 3f
+        return 1f
+    }
+
+    // ---------- установка ловушек, баррикад ----------
+
+    private fun placeTrap() {
+        if (player.dead || driving != null) return
+        if (traps <= 0) { say("Нет ловушек"); return }
+        traps--
+        trapL.add(Trap(player.x + cos(player.angle) * 30f, player.y + sin(player.angle) * 30f))
+        say("Ловушка поставлена")
+    }
+
+    private fun placeBarr() {
+        if (player.dead || driving != null) return
+        if (barrs <= 0) { say("Нет баррикад"); return }
+        val a = player.angle
+        val cx = player.x + cos(a) * 50f
+        val cy = player.y + sin(a) * 50f
+        if (blocked(cx, cy, 40f)) { say("Здесь нельзя"); return }
+        val horiz = abs(sin(a)) > abs(cos(a))
+        val ww = if (horiz) 70f else 18f
+        val hh = if (horiz) 18f else 70f
+        val wl = Wall(cx - ww / 2f, cy - hh / 2f, ww, hh)
+        addWall(wl)
+        barrL.add(Barr(wl))
+        barrs--
+    }
+
+    // ---------- машина ----------
+
+    private fun nearCar(): Car? {
+        for (cr in cars) if (hypot(cr.x - player.x, cr.y - player.y) < 70f) return cr
+        return null
+    }
+
+    private fun toggleCar() {
+        val cr = driving
+        if (cr != null) {
+            driving = null
+            player.x = cr.x + cos(cr.a + 1.57f) * 36f
+            player.y = cr.y + sin(cr.a + 1.57f) * 36f
+            if (blocked(player.x, player.y, player.r)) { player.x = cr.x; player.y = cr.y }
+            cr.v = 0f
+        } else {
+            val n = nearCar() ?: return
+            driving = n
+            say("Ты в машине!")
+        }
+    }
+
+    private fun driveStep(dt: Float) {
+        val cr = driving ?: return
+        val p = player
+        val mag = hypot(joyDx, joyDy)
+        if (mag > 0.2f) {
+            val ta = atan2(joyDy, joyDx)
+            val k = (abs(cr.v) / 200f).coerceIn(0.35f, 1f)
+            val da = normAng(ta - cr.a)
+            cr.a += da.coerceIn(-2.6f * dt * k, 2.6f * dt * k)
+            cr.v = min(430f, cr.v + 340f * dt * mag)
+        } else cr.v -= cr.v * min(1f, 1.6f * dt)
+        val nx = cr.x + cos(cr.a) * cr.v * dt
+        val ny = cr.y + sin(cr.a) * cr.v * dt
+        if (blocked(nx, cr.y, 18f)) { cr.hp -= abs(cr.v) * 0.05f; cr.v *= -0.2f } else cr.x = nx
+        if (blocked(cr.x, ny, 18f)) { cr.hp -= abs(cr.v) * 0.05f; cr.v *= -0.2f } else cr.y = ny
+        cr.x = cr.x.coerceIn(20f, WORLD - 20f)
+        cr.y = cr.y.coerceIn(20f, WORLD - 20f)
+        if (abs(cr.v) > 120f) {
+            noiseT = 0.5f
+            for (z in zombies) if (!z.dead && hypot(z.x - cr.x, z.y - cr.y) < 26f + z.r) { damageQuiet(z, 120f, true); cr.hp -= 6f }
+            for (g in dogs) if (!g.dead && hypot(g.x - cr.x, g.y - cr.y) < 26f + g.r) { damageQuiet(g, 120f, true); cr.hp -= 4f }
+        }
+        p.x = cr.x; p.y = cr.y; p.angle = cr.a
+        p.moving = false
+        if (cr.hp <= 0f) {
+            driving = null
+            cars.remove(cr)
+            explodeAt(cr.x, cr.y, 140f, 90f, true, true, false)
+            hurtAlly(player, 40f, 0f)
+        }
+        val ct = camTarget()
+        camX += (ct.x - camX) * min(1f, dt * 10f)
+        camY += (ct.y - camY) * min(1f, dt * 10f)
+    }
+
+    // ---------- чат ----------
+
+    fun chatAdd(s: String) {
+        chatLines.add(ChatL(s, System.currentTimeMillis()))
+        while (chatLines.size > 6) chatLines.removeAt(0)
+    }
+
+    private fun chatBroadcast(line: String) {
+        chatAdd(line)
+        chatSeq = (chatSeq + 1) and 127
+        chatLine = line
+    }
+
+    fun chatFrom(name: String, t: String) { chatBroadcast(name + ": " + t.take(60)) }
+
+    private fun sendChatMsg(t: String) {
+        val sy = sync
+        if (sy != null && sy.client) sy.sendChat(t) else chatBroadcast(myName + ": " + t)
+    }
+
+    private fun askChat() {
+        val act = context as? android.app.Activity ?: return
+        act.runOnUiThread {
+            val et = android.widget.EditText(act)
+            et.hint = "Сообщение"
+            et.filters = arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(60))
+            android.app.AlertDialog.Builder(act).setTitle("Чат").setView(et)
+                .setPositiveButton("Отправить") { _, _ ->
+                    val t = et.text.toString().trim()
+                    if (t.isNotEmpty()) sendChatMsg(t)
+                }
+                .setNegativeButton("Отмена", null).show()
+        }
+    }
+
+    // ---------- кнопки ----------
+
+    private fun sb2X(): Float = width - 88f * d
+
+    private fun buy(i: Int) {
+        val cost = if (i == 0) 60 + 40 * upHp else if (i == 1) 80 + 50 * upDmg else if (i == 2) 25 else if (i == 3) 30 else if (i == 4) 30 else 20
+        if ((i == 0 && upHp >= 5) || (i == 1 && upDmg >= 5)) { say("Максимум"); return }
+        if (i == 5 && player.hp >= player.maxHp) { say("Здоровье полное"); return }
+        if (coins < cost) { say("Не хватает монет"); return }
+        coins -= cost
+        when (i) {
+            0 -> { upHp++; player.maxHp += 20f; player.hp += 20f }
+            1 -> upDmg++
+            2 -> gren = min(9, gren + 2)
+            3 -> traps += 3
+            4 -> barrs += 3
+            else -> player.hp = player.maxHp
+        }
+        saveProg()
+    }
+
+    private fun stage4Down(id: Int, x: Float, y: Float): Boolean {
+        if (shopOpen) {
+            for (i in 0..6) if (shopR[i].contains(x, y)) { if (i == 6) shopOpen = false else buy(i) }
+            return true
+        }
+        if (chatOpen) {
+            for (i in 0..7) if (chatR[i].contains(x, y)) {
+                if (i < 6) { sendChatMsg(phrases[i]); chatOpen = false }
+                else if (i == 6) { chatOpen = false; askChat() }
+                else chatOpen = false
+            }
+            return true
+        }
+        if (gameOver) return false
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val client = sync?.client == true
+        if (sync != null && hypot(x - (w / 2f - 110f * d), y - (h - 30f * d)) < 26f * d) { chatOpen = true; return true }
+        if (client) return false
+        if (hypot(x - (w / 2f + 110f * d), y - (h - 30f * d)) < 26f * d) { shopOpen = true; return true }
+        if (hypot(x - sb2X(), y - sbY(0)) < 30f * d) { placeTrap(); return true }
+        if (hypot(x - sb2X(), y - sbY(1)) < 30f * d) { placeBarr(); return true }
+        if ((driving != null || nearCar() != null) && hypot(x - w / 2f, y - (h - 84f * d)) < 34f * d) { toggleCar(); return true }
+        return false
+    }
+
+    private fun drawStage4Hud(c: Canvas, w: Float, h: Float) {
+        val client = sync?.client == true
+        if (!client) {
+            val lab = arrayOf("ЛОВ " + traps, "БАР " + barrs)
+            for (i in 0..1) {
+                c.drawCircle(sb2X(), sbY(i), 24f * d, fillP(0x88455A64.toInt()))
+                c.drawCircle(sb2X(), sbY(i), 24f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+                txt(c, lab[i], sb2X(), sbY(i) + 4f * d, 10f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            }
+            c.drawCircle(w / 2f + 110f * d, h - 30f * d, 22f * d, fillP(0x88795548.toInt()))
+            c.drawCircle(w / 2f + 110f * d, h - 30f * d, 22f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+            txt(c, "МАГ", w / 2f + 110f * d, h - 26f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            if (driving != null || nearCar() != null) {
+                c.drawCircle(w / 2f, h - 84f * d, 30f * d, fillP(0xCC1565C0.toInt()))
+                c.drawCircle(w / 2f, h - 84f * d, 30f * d, strokeP(0xFFFFFFFF.toInt(), 2f * d))
+                txt(c, if (driving != null) "ВЫЙТИ" else "СЕСТЬ", w / 2f, h - 80f * d, 12f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            }
+            txt(c, "Ур. " + level() + "   Монеты: " + coins, 16f * d, h - 40f * d, 12f * d, 0xFFFFE082.toInt(), Paint.Align.LEFT)
+            if (gmode == 0) txt(c, missionText(), 16f * d, h - 24f * d, 12f * d, 0xFFA5D6A7.toInt(), Paint.Align.LEFT)
+        }
+        if (sync != null) {
+            c.drawCircle(w / 2f - 110f * d, h - 30f * d, 22f * d, fillP(0x8800796B.toInt()))
+            c.drawCircle(w / 2f - 110f * d, h - 30f * d, 22f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+            txt(c, "ЧАТ", w / 2f - 110f * d, h - 26f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            val now = System.currentTimeMillis()
+            var cy = h * 0.58f
+            for (l in chatLines) {
+                if (now - l.ts > 10000L) continue
+                txt(c, l.s, 16f * d, cy, 13f * d, 0xFFFFFFFF.toInt(), Paint.Align.LEFT)
+                cy += 17f * d
+            }
+            val s = h / 700f
+            for (b in bots) {
+                if (!b.ally || b.name.isEmpty()) continue
+                val sx = (b.x - camX) * s + w / 2f
+                val sy = (b.y - camY) * s + h / 2f
+                if (sx > 30f && sx < w - 30f && sy > 30f && sy < h - 30f) continue
+                val ex = sx.coerceIn(30f * d, w - 30f * d)
+                val ey = sy.coerceIn(30f * d, h - 30f * d)
+                c.drawCircle(ex, ey, 9f * d, fillP(if (b.dead) 0xCCE53935.toInt() else 0xCC40C4FF.toInt()))
+                txt(c, b.name.take(6), ex, ey - 12f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            }
+        }
+        if (shopOpen) {
+            c.drawColor(0xCC000000.toInt())
+            val bw = min(w * 0.6f, 420f * d)
+            val bh = min(40f * d, (h - 90f * d) / 7f)
+            var y = (h - (7 * (bh + 6f * d))) / 2f + 14f * d
+            txt(c, "МАГАЗИН   монеты: " + coins, w / 2f, y - 10f * d, 22f * d, 0xFFFFE082.toInt(), Paint.Align.CENTER)
+            val names = arrayOf(
+                "Здоровье +20 (ур. " + upHp + "/5)  [" + (60 + 40 * upHp) + "]",
+                "Урон +10% (ур. " + upDmg + "/5)  [" + (80 + 50 * upDmg) + "]",
+                "Гранаты +2  [25]", "Ловушки +3  [30]", "Баррикады +3  [30]", "Полное лечение  [20]", "ЗАКРЫТЬ"
+            )
+            for (i in 0..6) {
+                shopR[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+                uiBtn(c, shopR[i], names[i], false, 15f)
+                y += bh + 6f * d
+            }
+        }
+        if (chatOpen) {
+            c.drawColor(0xAA000000.toInt())
+            val bw = min(w * 0.3f, 220f * d)
+            val bh = min(40f * d, h * 0.14f)
+            val x0 = w / 2f - bw - 4f * d
+            var y = h / 2f - (4 * (bh + 6f * d)) / 2f
+            for (i in 0..7) {
+                val col = i % 2
+                val row = i / 2
+                chatR[i].set(x0 + col * (bw + 8f * d), y + row * (bh + 6f * d), x0 + col * (bw + 8f * d) + bw, y + row * (bh + 6f * d) + bh)
+                val lb = if (i < 6) phrases[i] else if (i == 6) "НАПИСАТЬ..." else "ЗАКРЫТЬ"
+                uiBtn(c, chatR[i], lb, false, 14f)
+            }
+        }
+    }
+
+    private fun drawFx2(c: Canvas) {
+        for (t in trapL) {
+            c.drawCircle(t.x, t.y, 9f, fillP(0xFF616161.toInt()))
+            c.drawCircle(t.x, t.y, 9f, strokeP(0xFFCFD8DC.toInt(), 2f))
+            c.drawLine(t.x - 7f, t.y, t.x + 7f, t.y, strokeP(0xFFCFD8DC.toInt(), 2f))
+        }
+        for (b in barrL) {
+            c.drawRect(b.w.x, b.w.y, b.w.x + b.w.w, b.w.y + b.w.h, fillP(0xFF8D6E3F.toInt()))
+            c.drawRect(b.w.x, b.w.y, b.w.x + b.w.w, b.w.y + b.w.h, strokeP(0xFF4E342E.toInt(), 2f))
+        }
+        for (cr in cars) {
+            c.save()
+            c.translate(cr.x, cr.y)
+            c.rotate(Math.toDegrees(cr.a.toDouble()).toFloat())
+            c.drawRoundRect(RectF(-27f, -15f, 27f, 15f), 6f, 6f, fillP(if (cr === driving) 0xFF1E88E5.toInt() else 0xFF455A64.toInt()))
+            c.drawRect(-6f, -11f, 12f, 11f, fillP(0xFF263238.toInt()))
+            c.drawRect(22f, -12f, 27f, -7f, fillP(0xFFFFF59D.toInt()))
+            c.drawRect(22f, 7f, 27f, 12f, fillP(0xFFFFF59D.toInt()))
+            c.drawRect(-26f, -16f, -16f, -12f, fillP(0xFF111111.toInt()))
+            c.drawRect(-26f, 12f, -16f, 16f, fillP(0xFF111111.toInt()))
+            c.drawRect(14f, -16f, 24f, -12f, fillP(0xFF111111.toInt()))
+            c.drawRect(14f, 12f, 24f, 16f, fillP(0xFF111111.toInt()))
+            c.restore()
+        }
+    }
 
     init {
         buildMap()

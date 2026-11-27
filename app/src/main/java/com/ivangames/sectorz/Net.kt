@@ -96,6 +96,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
     private var hostIp = ""
     private var got = false
     private var lastNote = -1
+    private var lastChat = -2
 
     fun start() {
         if (client) startClient() else startHost()
@@ -231,6 +232,8 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
                         val sq = bi.readByte().toInt()
                         if (!pr.gotInput) { pr.lastSw = sq; pr.gotInput = true }
                         pr.swSeq = sq
+                    } else if (type == 4) {
+                        g.chatFrom(pr.name, bi.readUTF())
                     }
                 }
             } catch (e: Exception) { }
@@ -402,6 +405,8 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
             o.writeFloat(g.zoneR)
             o.writeFloat(g.zoneT)
             o.writeByte(if (g.pvpOver) 1 else 0)
+            o.writeByte(g.chatSeq and 127)
+            o.writeUTF(g.chatLine)
             o.write(body)
             o.flush()
             pr.send(bo.toByteArray())
@@ -495,6 +500,10 @@ val pr = NetPeer(s)
         g.zoneR = i.readFloat()
         g.zoneT = i.readFloat()
         g.pvpOver = i.readByte().toInt() != 0
+        val cs = i.readByte().toInt()
+        val cl = i.readUTF()
+        if (lastChat == -2) lastChat = cs
+        else if (cs != lastChat) { lastChat = cs; if (cl.isNotEmpty()) g.chatAdd(cl) }
         val nh = i.readByte().toInt()
         val oldBots = ArrayList<Bot>(g.bots)
         val newBots = ArrayList<Bot>()
@@ -630,6 +639,15 @@ val pr = NetPeer(s)
         o.writeFloat(ax)
         o.writeFloat(ay)
         o.writeByte(swSeq)
+        pr.send(bo.toByteArray())
+    }
+
+    fun sendChat(t: String) {
+        val pr = me ?: return
+        val bo = ByteArrayOutputStream(96)
+        val o = DataOutputStream(bo)
+        o.writeByte(4)
+        o.writeUTF(t)
         pr.send(bo.toByteArray())
     }
 
