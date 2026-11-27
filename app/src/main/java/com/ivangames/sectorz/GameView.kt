@@ -1034,7 +1034,7 @@ for (l in loot) {
                 txt(c, ln, bx, ty, 12f * d, 0xFFB3E5FC.toInt(), Paint.Align.LEFT)
             }
         }
-        if (msgT > 0f) txt(c, msg, w / 2f, 56f * d, 18f * d, 0xFFFFEB3B.toInt(), Paint.Align.CENTER)
+        if (msgT > 0f) txt(c, msg, w / 2f, 84f * d, 18f * d, 0xFFFFEB3B.toInt(), Paint.Align.CENTER)
         drawMini(c, w)
         val st = sync?.status
         if (!st.isNullOrEmpty()) txt(c, st, w / 2f, h * 0.5f, 22f * d, 0xFFFFEB3B.toInt(), Paint.Align.CENTER)
@@ -2118,13 +2118,13 @@ for (l in loot) {
 
     // ---------- кнопки и HUD ----------
 
-    private fun sbX(): Float = width - 34f * d
-    private fun sbY(i: Int): Float = 168f * d + i * 54f * d
+    private fun sbX(): Float = width - 22f * d
+    private fun sbY(i: Int): Float = 160f * d + i * 38f * d
 
     private fun stageDown(id: Int, x: Float, y: Float): Boolean {
         if (gameOver || sync?.client == true) return false
         for (i in 0..2) {
-            if (hypot(x - sbX(), y - sbY(i)) < 30f * d) {
+            if (hypot(x - sbX(), y - sbY(i)) < 21f * d) {
                 if (i == 0) sprintId = id else if (i == 1) throwItem(0) else throwItem(1)
                 return true
             }
@@ -2138,12 +2138,12 @@ for (l in loot) {
             val by = 60f * d + 19f * d
             c.drawRoundRect(RectF(bx, by, bx + 190f * d, by + 7f * d), 3f * d, 3f * d, fillP(0x88000000.toInt()))
             c.drawRoundRect(RectF(bx, by, bx + 190f * d * stam / 100f, by + 7f * d), 3f * d, 3f * d, fillP(if (tired) 0xFFFF7043.toInt() else 0xFFFFCA28.toInt()))
-            val lab = arrayOf("БЕГ", "ГРАН " + gren, "КОКТ " + molo)
+            val lab = arrayOf("БЕГ", "ГР " + gren, "КОК " + molo)
             for (i in 0..2) {
                 val on = (i == 0 && sprintId != -1) || (i == 1 && gren > 0) || (i == 2 && molo > 0)
-                c.drawCircle(sbX(), sbY(i), 24f * d, fillP(if (i == 0 && sprintId != -1) 0xCCFFCA28.toInt() else if (on) 0x88455A64.toInt() else 0x44455A64))
-                c.drawCircle(sbX(), sbY(i), 24f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
-                txt(c, lab[i], sbX(), sbY(i) + 4f * d, 10f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+                c.drawCircle(sbX(), sbY(i), 17f * d, fillP(if (i == 0 && sprintId != -1) 0xCCFFCA28.toInt() else if (on) 0x88455A64.toInt() else 0x44455A64))
+                c.drawCircle(sbX(), sbY(i), 17f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+                txt(c, lab[i], sbX(), sbY(i) + 3f * d, 8.5f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             }
         }
         val night = 0.5f - 0.5f * cos(2f * PI_F * dayT)
@@ -2155,7 +2155,7 @@ for (l in loot) {
         if (boss != null) {
             val bw = w * 0.4f
             val l = w / 2f - bw / 2f
-            val t = 72f * d
+            val t = 92f * d
             c.drawRoundRect(RectF(l, t, l + bw, t + 10f * d), 4f * d, 4f * d, fillP(0xAA000000.toInt()))
             val k = (boss.hp / boss.maxHp).coerceIn(0f, 1f)
             c.drawRoundRect(RectF(l, t, l + bw * k, t + 10f * d), 4f * d, 4f * d, fillP(0xFFB71C1C.toInt()))
@@ -2572,7 +2572,7 @@ for (l in loot) {
 
     // ---------- кнопки ----------
 
-    private fun sb2X(): Float = width - 88f * d
+    private fun sb2X(): Float = width - 22f * d
 
     private fun buy(i: Int) {
         val cost = if (i == 0) 60 + 40 * upHp else if (i == 1) 80 + 50 * upDmg else if (i == 2) 25 else if (i == 3) 30 else if (i == 4) 30 else 20
@@ -2608,12 +2608,12 @@ for (l in loot) {
         val w = width.toFloat()
         val h = height.toFloat()
         val client = sync?.client == true
-        if (sync != null && hypot(x - (w / 2f - 110f * d), y - (h - 30f * d)) < 26f * d) { chatOpen = true; return true }
+        if (sync != null && hypot(x - 250f * d, y - (h - 70f * d)) < 24f * d) { chatOpen = true; return true }
         if (client) return false
-        if (hypot(x - (w / 2f + 110f * d), y - (h - 30f * d)) < 26f * d) { shopOpen = true; return true }
-        if (hypot(x - sb2X(), y - sbY(0)) < 30f * d) { placeTrap(); return true }
-        if (hypot(x - sb2X(), y - sbY(1)) < 30f * d) { placeBarr(); return true }
-        if ((driving != null || nearCar() != null) && hypot(x - w / 2f, y - (h - 84f * d)) < 34f * d) { toggleCar(); return true }
+        if (hypot(x - 298f * d, y - (h - 70f * d)) < 24f * d) { shopOpen = true; return true }
+        if (hypot(x - sb2X(), y - sbY(3)) < 21f * d) { placeTrap(); return true }
+        if (hypot(x - sb2X(), y - sbY(4)) < 21f * d) { placeBarr(); return true }
+        if ((driving != null || nearCar() != null) && hypot(x - 346f * d, y - (h - 70f * d)) < 24f * d) { toggleCar(); return true }
         return false
     }
 
@@ -2622,25 +2622,25 @@ for (l in loot) {
         if (!client) {
             val lab = arrayOf("ЛОВ " + traps, "БАР " + barrs)
             for (i in 0..1) {
-                c.drawCircle(sb2X(), sbY(i), 24f * d, fillP(0x88455A64.toInt()))
-                c.drawCircle(sb2X(), sbY(i), 24f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
-                txt(c, lab[i], sb2X(), sbY(i) + 4f * d, 10f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+                c.drawCircle(sb2X(), sbY(i + 3), 17f * d, fillP(0x88455A64.toInt()))
+                c.drawCircle(sb2X(), sbY(i + 3), 17f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+                txt(c, lab[i], sb2X(), sbY(i + 3) + 3f * d, 8.5f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             }
-            c.drawCircle(w / 2f + 110f * d, h - 30f * d, 22f * d, fillP(0x88795548.toInt()))
-            c.drawCircle(w / 2f + 110f * d, h - 30f * d, 22f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
-            txt(c, "МАГ", w / 2f + 110f * d, h - 26f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            c.drawCircle(298f * d, h - 70f * d, 20f * d, fillP(0x88795548.toInt()))
+            c.drawCircle(298f * d, h - 70f * d, 20f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+            txt(c, "МАГ", 298f * d, h - 66f * d, 10f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             if (driving != null || nearCar() != null) {
-                c.drawCircle(w / 2f, h - 84f * d, 30f * d, fillP(0xCC1565C0.toInt()))
-                c.drawCircle(w / 2f, h - 84f * d, 30f * d, strokeP(0xFFFFFFFF.toInt(), 2f * d))
-                txt(c, if (driving != null) "ВЫЙТИ" else "СЕСТЬ", w / 2f, h - 80f * d, 12f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+                c.drawCircle(346f * d, h - 70f * d, 20f * d, fillP(0xCC1565C0.toInt()))
+                c.drawCircle(346f * d, h - 70f * d, 20f * d, strokeP(0xFFFFFFFF.toInt(), 2f * d))
+                txt(c, if (driving != null) "ВЫЙТИ" else "СЕСТЬ", 346f * d, h - 66f * d, 9f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             }
             txt(c, "Ур. " + level() + "   Монеты: " + coins, 16f * d, h - 40f * d, 12f * d, 0xFFFFE082.toInt(), Paint.Align.LEFT)
             if (gmode == 0) txt(c, missionText(), 16f * d, h - 24f * d, 12f * d, 0xFFA5D6A7.toInt(), Paint.Align.LEFT)
         }
         if (sync != null) {
-            c.drawCircle(w / 2f - 110f * d, h - 30f * d, 22f * d, fillP(0x8800796B.toInt()))
-            c.drawCircle(w / 2f - 110f * d, h - 30f * d, 22f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
-            txt(c, "ЧАТ", w / 2f - 110f * d, h - 26f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            c.drawCircle(250f * d, h - 70f * d, 20f * d, fillP(0x8800796B.toInt()))
+            c.drawCircle(250f * d, h - 70f * d, 20f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+            txt(c, "ЧАТ", 250f * d, h - 66f * d, 10f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             val now = System.currentTimeMillis()
             var cy = h * 0.58f
             for (l in chatLines) {
