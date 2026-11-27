@@ -260,8 +260,8 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
             if (bb == null) {
                 val sp = g.spawnPoint()
                 val nb = Bot(sp.x, sp.y, Looks.players[pr.skin], true)
-                nb.hp = 120f
-                nb.maxHp = 120f
+                nb.hp = 100f
+                nb.maxHp = 100f
                 nb.weapon = 3
                 nb.owned[0] = true
                 nb.owned[3] = true

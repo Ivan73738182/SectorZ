@@ -307,7 +307,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
                 if (i == skin) continue
                 val b = Bot(player.x + 30f * (i + 1), player.y + 40f, Looks.players[i], true)
                 b.weapon = if (i % 2 == 0) 4 else 3
-                b.hp = 120f; b.maxHp = 120f
+                b.hp = 100f; b.maxHp = 100f // m11a
                 bots.add(b)
             }
         }
@@ -1214,6 +1214,7 @@ for (l in loot) {
     }
 
     fun stopNet() {
+        awardXp()
         sync?.stop()
     }
 
@@ -2344,21 +2345,21 @@ for (l in loot) {
     private fun loadProg() {
         val pf = context.getSharedPreferences("sectorz", Context.MODE_PRIVATE)
         coins = pf.getInt("coins", 0)
-        xp = pf.getInt("xp", 0)
-        upHp = pf.getInt("upHp", 0)
-        upDmg = pf.getInt("upDmg", 0)
+        medalXp = pf.getInt("medalXp", 0)
+        upHp = 0 // m11c
+        upDmg = 0 // m11d
     }
 
     private fun saveProg() {
         context.getSharedPreferences("sectorz", Context.MODE_PRIVATE).edit()
-            .putInt("coins", coins).putInt("xp", xp).putInt("upHp", upHp).putInt("upDmg", upDmg).apply()
+            .putInt("medalXp", medalXp).apply()
     }
 
     private fun level(): Int = 1 + xp / 100
 
     private fun resetStage4() {
         loadProg()
-        player.maxHp = 100f + upHp * 20f + (level() - 1) * 5f
+        player.maxHp = 100f // m11b
         player.hp = player.maxHp
         traps = 2; barrs = 2
         trapL.clear()
@@ -2375,6 +2376,7 @@ for (l in loot) {
         }
         mCount = 0
         newMission()
+        xpT0 = time; xpK0 = 0; missXp = 0; xpAwarded = false
     }
 
     private fun removeWall(w: Wall) {
@@ -2391,15 +2393,7 @@ for (l in loot) {
         } else if (e is Dog) {
             g = 3
         }
-        val old = level()
-        coins += g
-        xp += g * 2
-        if (level() > old) {
-            coins += 20
-            player.maxHp += 5f
-            say("Новый уровень: " + level() + "!")
-        }
-        saveProg()
+        // сумма опыта считается в конце игры
         missionAdd(0, 1f)
     }
 
@@ -2419,7 +2413,7 @@ for (l in loot) {
         mProg += amt
         if (mProg >= mTarget) {
             val r = 25 + mCount * 5
-            xp += r * 2
+            missXp += r * 2
             mCount++
             saveProg()
             say("Миссия выполнена! +" + (r * 2) + " опыта")
@@ -2619,6 +2613,7 @@ for (l in loot) {
     }
 
     private fun drawStage4Hud(c: Canvas, w: Float, h: Float) {
+        xpTick(c, w, h)
         val client = sync?.client == true
         if (!client) {
             val lab = arrayOf("ЛОВ " + traps, "БАР " + barrs)
@@ -2632,7 +2627,7 @@ for (l in loot) {
                 c.drawCircle(346f * d, h - 70f * d, 20f * d, strokeP(0xFFFFFFFF.toInt(), 2f * d))
                 txt(c, if (driving != null) "ВЫЙТИ" else "СЕСТЬ", 346f * d, h - 66f * d, 9f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             }
-            txt(c, "Уровень " + level() + "   Опыт: " + (xp % 100) + "/100", 16f * d, h - 40f * d, 12f * d, 0xFFFFE082.toInt(), Paint.Align.LEFT)
+            txt(c, "Ранг " + Medal.level(medalXp) + "   (+" + pendingXp() + " опыта за игру)", 16f * d, h - 40f * d, 12f * d, 0xFFFFE082.toInt(), Paint.Align.LEFT)
             if (gmode == 0) txt(c, missionText(), 16f * d, h - 24f * d, 12f * d, 0xFFA5D6A7.toInt(), Paint.Align.LEFT)
         }
         if (sync != null) {
@@ -2747,6 +2742,61 @@ for (l in loot) {
             k += 0.5f
         }
         return a
+    }
+
+    // ===== РАНГИ-МЕДАЛИ: опыт начисляется в конце игры =====
+
+    private var medalXp = 0
+    private var missXp = 0
+    private var xpAwarded = false
+    private var xpT0 = 0f
+    private var xpK0 = 0
+    private var gainXp = 0
+    private var xpBefore = 0
+    private var awardAt = 0L
+
+    private fun pendingXp(): Int {
+        val el = max(0f, time - xpT0)
+        val g = (player.kills - xpK0) * 2 + (el / 6f).toInt() + (if (gmode == 1) wave * 10 else 0) + missXp
+        return max(0, g)
+    }
+
+    private fun awardXp() {
+        if (xpAwarded) return
+        xpAwarded = true
+        var g = pendingXp()
+        if (gmode == 2 && pvpOver && !player.dead) g += 100
+        xpBefore = medalXp
+        gainXp = g
+        medalXp = min(Medal.MAXXP, medalXp + g)
+        xpT0 = time
+        xpK0 = player.kills
+        missXp = 0
+        awardAt = System.currentTimeMillis()
+        saveProg()
+        if (g > 0) say("+" + g + " опыта")
+    }
+
+    private fun xpTick(c: Canvas, w: Float, h: Float) {
+        if (!gameOver && !pvpOver) { xpAwarded = false; return }
+        awardXp()
+        if (gameOver && gmode != 2 && (sync != null || overT > 0.8f)) drawXpPanel(c, w, h)
+    }
+
+    private fun drawXpPanel(c: Canvas, w: Float, h: Float) {
+        val t = ((System.currentTimeMillis() - awardAt - 600L) / 1500f).coerceIn(0f, 1f)
+        val shown = xpBefore + ((medalXp - xpBefore) * t).toInt()
+        val lv = Medal.level(shown)
+        val cy = if (sync != null) h * 0.64f else h * 0.5f + 8f * d
+        val bx = w / 2f - 110f * d
+        Medal.draw(c, w / 2f - 150f * d, cy, 22f * d, lv, false)
+        txt(c, "+" + gainXp + " опыта     Ранг " + lv, bx, cy - 8f * d, 14f * d, 0xFFFFFFFF.toInt(), Paint.Align.LEFT)
+        val r = RectF(bx, cy + 2f * d, bx + 260f * d, cy + 14f * d)
+        c.drawRoundRect(r, 5f * d, 5f * d, fillP(0x66FFFFFF.toInt()))
+        r.right = bx + 260f * d * Medal.frac(shown)
+        c.drawRoundRect(r, 5f * d, 5f * d, fillP(0xFFFFC107.toInt()))
+        if (lv < Medal.MAXL) txt(c, Medal.into(shown).toString() + " / " + Medal.need(lv), bx, cy + 30f * d, 11f * d, 0xFFB0BEC5.toInt(), Paint.Align.LEFT)
+        if (t >= 1f && Medal.level(medalXp) > Medal.level(xpBefore)) txt(c, "НОВЫЙ РАНГ!", bx + 260f * d, cy - 8f * d, 14f * d, 0xFF69F0AE.toInt(), Paint.Align.RIGHT)
     }
 
     init {

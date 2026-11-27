@@ -140,7 +140,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         }.also { vig = it }
         c.drawRect(0f, 0f, w, h, v)
 
-        if (screen == 0) drawMain(c, w, h) else if (screen == 1) drawSettings2(c, w, h) else if (screen == 3) drawModes(c, w, h) else drawMulti(c, w, h)
+        if (screen == 0) { drawMain(c, w, h); drawMedalChip(c, w, h) } else if (screen == 4) drawMedals(c, w, h) else if (screen == 1) drawSettings2(c, w, h) else if (screen == 3) drawModes(c, w, h) else drawMulti(c, w, h)
     }
 
     private fun drawMain(c: Canvas, w: Float, h: Float) {
@@ -200,6 +200,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     }
 
     private fun hit(x: Float, y: Float): Int {
+        if (screen == 4) return if (backBtn.contains(x, y)) 10 else -1
         if (screen == 3) {
             for (i in 0..2) if (mm[i].contains(x, y)) return 20 + i
             return if (backBtn.contains(x, y)) 10 else -1
@@ -216,6 +217,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         }
         for (i in 0..2) if (btn[i].contains(x, y)) return i
         if (nameBtn.contains(x, y)) return 30
+        if (medalR.contains(x, y)) return 31
         for (i in 0..3) if (cards[i].contains(x, y)) return 4 + i
         return -1
     }
@@ -233,6 +235,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         else if (id == 12) { save(); onPlay(3, skin) }
         else if (id == 13) { save(); onPlay(4, skin) }
         else if (id == 30) onPlay(99, 0)
+        else if (id == 31) screen = 4
         else if (id == 40) Cfg.nextVol(context)
         else if (id == 41) Cfg.nextAim(context)
         else if (id == 42) Cfg.nextFps(context)
@@ -339,6 +342,49 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
             y += bh + g
         }
         backBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+        drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
+    }
+
+
+    private val medalR = RectF()
+
+    private fun drawMedalChip(c: Canvas, w: Float, h: Float) {
+        val xp = prefs.getInt("medalXp", 0)
+        val lv = Medal.level(xp)
+        val cx = w - 40f * d
+        val cy = 40f * d
+        Medal.draw(c, cx, cy, 24f * d, lv, pressed == 31)
+        medalR.set(cx - 34f * d, cy - 30f * d, cx + 34f * d, cy + 84f * d)
+        txt(c, "Ранг " + lv, cx, cy + 56f * d, 12f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        rf.set(cx - 30f * d, cy + 62f * d, cx + 30f * d, cy + 68f * d)
+        c.drawRoundRect(rf, 3f * d, 3f * d, fillP2(0x66FFFFFF.toInt()))
+        rf.right = rf.left + 60f * d * Medal.frac(xp)
+        c.drawRoundRect(rf, 3f * d, 3f * d, fillP2(0xFFFFC107.toInt()))
+        if (lv < Medal.MAXL) txt(c, Medal.into(xp).toString() + "/" + Medal.need(lv), cx, cy + 82f * d, 10f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
+    }
+
+    private fun fillP2(col: Int): Paint {
+        p.style = Paint.Style.FILL
+        p.color = col
+        return p
+    }
+
+    private fun drawMedals(c: Canvas, w: Float, h: Float) {
+        fr(c, 0f, 0f, w, h, 0xDD000000.toInt())
+        val xp = prefs.getInt("medalXp", 0)
+        val lv = Medal.level(xp)
+        txt(c, "МЕДАЛИ   ранг " + lv + " из " + Medal.MAXL, w / 2f, h * 0.1f, 28f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
+        val sub = if (lv < Medal.MAXL) "Опыт: " + Medal.into(xp) + " / " + Medal.need(lv) + " до следующего ранга" else "Максимальный ранг!"
+        txt(c, sub, w / 2f, h * 0.1f + 24f * d, 13f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
+        val cw = w * 0.94f / 10f
+        val ch = h * 0.58f / 5f
+        val r = min(cw * 0.40f, ch / 2.7f)
+        for (i in 0 until 50) {
+            val col = i % 10
+            val row = i / 10
+            Medal.draw(c, w * 0.03f + cw * (col + 0.5f), h * 0.22f + ch * row + r * 1.05f, r, i + 1, i + 1 > lv)
+        }
+        backBtn.set(w / 2f - 130f * d, h * 0.88f, w / 2f + 130f * d, h * 0.88f + min(50f * d, h * 0.09f))
         drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
     }
 
