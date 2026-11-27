@@ -461,6 +461,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     private fun steer(e: Ent, ang: Float, speed: Float, dt: Float, face: Boolean) {
         var a = ang
         if (e.avoidT > 0f) { e.avoidT -= dt; a += e.avoidA }
+        a = clearAngle(e, a)
         val bx = e.x
 val by = e.y
         moveEnt(e, cos(a) * speed * dt, sin(a) * speed * dt)
@@ -527,7 +528,7 @@ val by = e.y
         if (t != null) {
             val ang = atan2(t.y - e.y, t.x - e.x)
             val dist = hypot(t.x - e.x, t.y - e.y)
-            if (dist < e.r + t.r + reachExtra) {
+            if (dist < e.r + t.r + reachExtra && hasLos(e.x, e.y, t.x, t.y)) {
                 turn(e, ang, 14f, dt)
                 e.moving = false
                 if (e.cool <= 0f) { e.atkT = 0f; e.atkHit = false; e.cool = cdT; sndAt(if (e is Dog) Snd.BARK else Snd.GROAN, e.x, e.y) }
@@ -557,7 +558,8 @@ val by = e.y
             val zdy = b.y - zoneY
             if (zdx * zdx + zdy * zdy > (zoneR - 60f) * (zoneR - 60f)) { steer(b, atan2(-zdy, -zdx), 130f, dt, true); return }
         }
-        val en = if (gmode == 2) nearestFoe(b, 440f) else nearestEnemy(b.x, b.y, 440f)
+        val en0 = if (gmode == 2) nearestFoe(b, 440f) else nearestEnemy(b.x, b.y, 440f)
+        val en = if (en0 != null && hasLos(b.x, b.y, en0.x, en0.y)) en0 else null
         if (en != null) {
             val ang = atan2(en.y - b.y, en.x - b.x)
             turn(b, ang, 4f, dt)
@@ -2269,7 +2271,7 @@ for (l in loot) {
         if (dist > 260f) steer(z, ang, 48f, dt, true)
         else if (dist < 150f) steer(z, ang + PI_F, 55f, dt, false)
         else z.moving = false
-        if (z.aux <= 0f && dist < 430f) {
+        if (z.aux <= 0f && dist < 430f && hasLos(z.x, z.y, t.x, t.y)) {
             z.aux = 2.2f
             z.atkT = 0f
             val sx = z.x + cos(z.angle) * 16f
@@ -2395,7 +2397,7 @@ for (l in loot) {
         if (level() > old) {
             coins += 20
             player.maxHp += 5f
-            say("Уровень " + level() + "! +20 монет")
+            say("Новый уровень: " + level() + "!")
         }
         saveProg()
         missionAdd(0, 1f)
@@ -2417,10 +2419,10 @@ for (l in loot) {
         mProg += amt
         if (mProg >= mTarget) {
             val r = 25 + mCount * 5
-            coins += r
+            xp += r * 2
             mCount++
             saveProg()
-            say("Миссия выполнена! +" + r + " монет")
+            say("Миссия выполнена! +" + (r * 2) + " опыта")
             newMission()
         }
     }
@@ -2610,7 +2612,6 @@ for (l in loot) {
         val client = sync?.client == true
         if (sync != null && hypot(x - 250f * d, y - (h - 70f * d)) < 24f * d) { chatOpen = true; return true }
         if (client) return false
-        if (hypot(x - 298f * d, y - (h - 70f * d)) < 24f * d) { shopOpen = true; return true }
         if (hypot(x - sb2X(), y - sbY(3)) < 21f * d) { placeTrap(); return true }
         if (hypot(x - sb2X(), y - sbY(4)) < 21f * d) { placeBarr(); return true }
         if ((driving != null || nearCar() != null) && hypot(x - 346f * d, y - (h - 70f * d)) < 24f * d) { toggleCar(); return true }
@@ -2626,15 +2627,12 @@ for (l in loot) {
                 c.drawCircle(sb2X(), sbY(i + 3), 17f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
                 txt(c, lab[i], sb2X(), sbY(i + 3) + 3f * d, 8.5f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             }
-            c.drawCircle(298f * d, h - 70f * d, 20f * d, fillP(0x88795548.toInt()))
-            c.drawCircle(298f * d, h - 70f * d, 20f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
-            txt(c, "МАГ", 298f * d, h - 66f * d, 10f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             if (driving != null || nearCar() != null) {
                 c.drawCircle(346f * d, h - 70f * d, 20f * d, fillP(0xCC1565C0.toInt()))
                 c.drawCircle(346f * d, h - 70f * d, 20f * d, strokeP(0xFFFFFFFF.toInt(), 2f * d))
                 txt(c, if (driving != null) "ВЫЙТИ" else "СЕСТЬ", 346f * d, h - 66f * d, 9f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             }
-            txt(c, "Ур. " + level() + "   Монеты: " + coins, 16f * d, h - 40f * d, 12f * d, 0xFFFFE082.toInt(), Paint.Align.LEFT)
+            txt(c, "Уровень " + level() + "   Опыт: " + (xp % 100) + "/100", 16f * d, h - 40f * d, 12f * d, 0xFFFFE082.toInt(), Paint.Align.LEFT)
             if (gmode == 0) txt(c, missionText(), 16f * d, h - 24f * d, 12f * d, 0xFFA5D6A7.toInt(), Paint.Align.LEFT)
         }
         if (sync != null) {
@@ -2717,6 +2715,38 @@ for (l in loot) {
             c.drawRect(14f, 12f, 24f, 16f, fillP(0xFF111111.toInt()))
             c.restore()
         }
+    }
+
+    // ---------- обход стен и линия видимости ----------
+
+    private fun hasLos(x1: Float, y1: Float, x2: Float, y2: Float): Boolean {
+        val dx = x2 - x1
+        val dy = y2 - y1
+        val n = (hypot(dx, dy) / 12f).toInt()
+        for (i in 1 until n) {
+            val t = i.toFloat() / n
+            if (blocked(x1 + dx * t, y1 + dy * t, 1.5f)) return false
+        }
+        return true
+    }
+
+    private fun clearAngle(e: Ent, a: Float): Float {
+        val L = e.r + 30f
+        if (!blocked(e.x + cos(a) * L, e.y + sin(a) * L, e.r)) return a
+        val pref = if (e.avoidA >= 0f) 1f else -1f
+        var k = 0.5f
+        while (k <= 2.6f) {
+            for (q in 0..1) {
+                val s = if (q == 0) pref else -pref
+                val aa = a + s * k
+                if (!blocked(e.x + cos(aa) * L, e.y + sin(aa) * L, e.r)) {
+                    e.avoidA = s * 1.5f
+                    return aa
+                }
+            }
+            k += 0.5f
+        }
+        return a
     }
 
     init {
