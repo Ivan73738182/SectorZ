@@ -407,8 +407,9 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     }
 
     private fun fire(x: Float, y: Float, ang: Float, w: Int, mine: Boolean, owner: Ent? = null) {
-        val sx = x + cos(ang) * (W.gunLen[w] + 10f)
-        val sy = y + sin(ang) * (W.gunLen[w] + 10f)
+        var sx = x + cos(ang) * (W.gunLen[w] + 10f)
+        var sy = y + sin(ang) * (W.gunLen[w] + 10f)
+        if (!clearLine(x, y, sx, sy)) { sx = x; sy = y } // m19b
         val sp = if (w == 7) 2600f else 1500f
         val lf = if (w == 7) 1.0f else if (w == 5) 0.7f else if (w == 6) 0.35f else 0.5f
         for (q in 0 until (if (w == 6) 7 else 1)) {
@@ -427,6 +428,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         val dist = hypot(dx, dy)
         if (dist > rng + e.r) return
         if (abs(normAng(atan2(dy, dx) - p.angle)) > 1.2f) return
+        if (!clearLine(p.x, p.y, e.x, e.y)) return // m19c
         hitEnemy(e, dmg, atan2(dy, dx), true)
     }
 
@@ -702,7 +704,7 @@ val by = e.y
             val b = it.next()
             var remove = false
             val dist = hypot(b.vx, b.vy) * dt
-            val steps = max(1, (dist / 10f).toInt() + 1)
+            val steps = max(1, (dist / 6f).toInt() + 1) // m19a
             val sx = b.vx * dt / steps
             val sy = b.vy * dt / steps
             var s = 0
@@ -774,6 +776,7 @@ val by = e.y
         for (b in bots) updateBot(b, dt)
         for (z in zombies) updateZombie(z, dt)
         for (g in dogs) updateMonster(g, dt, 150f, 750f, 9f, 0.35f, 0.65f, 8f)
+        separate() // m19e
         updateBullets(dt)
         updateParts(dt)
         updateFx3(dt) // m13t1
@@ -1330,6 +1333,7 @@ for (l in loot) {
         val dist = hypot(dx, dy)
         if (dist > rng + e.r) return
         if (abs(normAng(atan2(dy, dx) - b.angle)) > 1.2f) return
+        if (!clearLine(b.x, b.y, e.x, e.y)) return // m19d
         hitEnemy(e, dmg, atan2(dy, dx), true, b)
     }
 
@@ -3987,6 +3991,57 @@ for (l in loot) {
                 r.alive = a
                 val w0 = r.wall
                 if (a) { r.hp = resMaxHp(r.type); if (w0 != null) gridAdd(w0) } else { if (w0 != null) gridDel(w0) }
+            }
+        }
+    }
+
+    // ===== твёрдость (m19) ===== // m19z
+    private val sepL = ArrayList<Ent>()
+
+    private fun clearLine(x1: Float, y1: Float, x2: Float, y2: Float): Boolean {
+        val n = (hypot(x2 - x1, y2 - y1) / 6f).toInt() + 1
+        for (i in 1..n) {
+            val t = i.toFloat() / n
+            if (blocked(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, 1f)) return false
+        }
+        return true
+    }
+
+    private fun separate() {
+        sepL.clear()
+        if (!player.dead && driving == null) sepL.add(player)
+        for (b in bots) if (!b.dead && b.car == null) sepL.add(b)
+        for (z in zombies) if (!z.dead) sepL.add(z)
+        for (g in dogs) if (!g.dead) sepL.add(g)
+        val n = sepL.size
+        for (i in 0 until n) {
+            val a = sepL[i]
+            for (j in i + 1 until n) {
+                val b = sepL[j]
+                val rs = a.r + b.r
+                val dx = b.x - a.x
+                if (dx > rs || dx < -rs) continue
+                val dy = b.y - a.y
+                if (dy > rs || dy < -rs) continue
+                val dist = hypot(dx, dy)
+                if (dist >= rs) continue
+                val nx: Float
+                val ny: Float
+                if (dist < 0.01f) {
+                    val an = rnd.nextFloat() * 2f * PI_F
+                    nx = cos(an)
+                    ny = sin(an)
+                } else {
+                    nx = dx / dist
+                    ny = dy / dist
+                }
+                val ov = (rs - dist) * 0.6f
+                val ma = (if (a === player) 1.6f else 1f) * a.r * a.r
+                val mb = (if (b === player) 1.6f else 1f) * b.r * b.r
+                val fa = mb / (ma + mb)
+                val fb = ma / (ma + mb)
+                moveEnt(a, -nx * ov * fa, -ny * ov * fa)
+                moveEnt(b, nx * ov * fb, ny * ov * fb)
             }
         }
     }
