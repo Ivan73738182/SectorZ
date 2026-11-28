@@ -83,7 +83,7 @@ class Pipe(private val sender: (ByteArray) -> Unit) {
 
 object Online {
     // Адрес твоего сервера (после запуска на Render замени командой из инструкции)
-    const val URL = "wss://sectorz-server.onrender.com"
+    const val URL = "wss://sectorz-server-production.up.railway.app"
 
     private val client = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
