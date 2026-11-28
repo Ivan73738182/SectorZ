@@ -35,7 +35,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private var pendKind = 0
     private val nameBtn = RectF()
     private val stBtn = Array(4) { RectF() } // m16p
-    private val mm = Array(4) { RectF() } // m14u
+    private val mm = Array(5) { RectF() } // m18r
     private var vig: Paint? = null
     private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ", "ОНЛАЙН") // m15o
     private val subs = arrayOf("режимы: свободный, волны, PVP", "по Wi-Fi: до 4 игроков", "", "через интернет, подбор 20 секунд") // m15p
@@ -216,7 +216,8 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private fun hit(x: Float, y: Float): Int {
         if (screen == 4 || screen == 5) return if (backBtn.contains(x, y)) 10 else -1 // m15j
         if (screen == 3) {
-            for (i in 0..(if (pendKind == 2) 3 else 2)) if (mm[i].contains(x, y)) return 20 + i // m14v
+            val n5 = if (pendKind == 2) 5 else 4 // m18s
+            for (j in 0 until n5) if (mm[j].contains(x, y)) return 20 + (if (j == 3 && pendKind != 2) 4 else j)
             return if (backBtn.contains(x, y)) 10 else -1
         }
         if (screen == 2) {
@@ -245,7 +246,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         Snd.play(Snd.CLICK, 1f)
         if (id == 0) { pendKind = 0; screen = 3 }
         else if (id == 3) { save(); screen = 5; Online.find() } // m15k
-        else if (id in 20..23) { save(); onPlay(pendKind + 10 * (id - 20), skin) }
+        else if (id in 20..24) { // m18v save(); onPlay(pendKind + 10 * (id - 20), skin) }
         else if (id == 1) screen = 2
         else if (id == 11) { pendKind = 2; screen = 3 }
         else if (id == 12) { save(); onPlay(3, skin) }
@@ -346,14 +347,16 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
         txt(c, "ВЫБЕРИ РЕЖИМ", w / 2f, h * 0.17f, 34f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
         val bw = min(w * 0.55f, 460f * d)
-        val bh = min(66f * d, h * 0.115f) // m14w
+        val bh = min(66f * d, h * 0.095f) // m18t
         val g = min(12f * d, h * 0.018f)
         var y = h * 0.23f
-        val tt = arrayOf("СВОБОДНЫЙ", "ВОЛНЫ", "PVP", "ЗАХВАТ БАЗЫ")
-        val ss = arrayOf("город, боты-выжившие, зомби и собаки", "зомби идут волнами, союзников нет", "зона сужается, каждый сам за себя", "команды 2 на 2, держи точку в центре")
-        for (i in 0..(if (pendKind == 2) 3 else 2)) {
-            mm[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
-            drawButton(c, mm[i], tt[i], ss[i], pressed == 20 + i)
+        val tt = arrayOf("СВОБОДНЫЙ", "ВОЛНЫ", "PVP", "ЗАХВАТ БАЗЫ", "ВЫЖИВАНИЕ") // m18u
+        val ss = arrayOf("город, боты-выжившие, зомби и собаки", "зомби идут волнами, союзников нет", "зона сужается, каждый сам за себя", "команды 2 на 2, держи точку в центре", "огромный лес: добыча, крафт, ночью зомби")
+        val n5 = if (pendKind == 2) 5 else 4
+        for (j in 0 until n5) {
+            val i = if (j == 3 && pendKind != 2) 4 else j
+            mm[j].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
+            drawButton(c, mm[j], tt[i], ss[i], pressed == 20 + i)
             y += bh + g
         }
         backBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh * 0.8f)

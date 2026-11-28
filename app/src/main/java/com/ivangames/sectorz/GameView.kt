@@ -11,16 +11,16 @@ import kotlin.random.Random
 class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, gm: Int, private val onExit: () -> Unit) : View(ctx), Runnable {
 
     companion object {
-        const val WORLD = 4800f
-        const val CELL = 600f
+        const val CELL = 600f // m18a
         const val G = 200f
-        const val GN = 24
     }
 
+    var WORLD = 4800f // m18b
+    var GN = 24
     private val d = resources.displayMetrics.density
     private val rnd = Random(System.nanoTime())
     private val walls = ArrayList<Wall>()
-    private val grid = Array(GN * GN) { ArrayList<Wall>() }
+    private var grid = Array(GN * GN) { ArrayList<Wall>() } // m18c
     private val props = ArrayList<Prop>()
     private val buildings = ArrayList<Building>()
     private val decals = ArrayList<Decal>()
@@ -148,6 +148,8 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
     }
 
     private fun buildMap() {
+        if (gmode == 4) { buildForest(); return } // m18d
+        if (WORLD != 4800f) { grid = Array(576) { ArrayList<Wall>() }; GN = 24; WORLD = 4800f; rsl = ArrayList() }
         walls.clear(); for (gl in grid) gl.clear(); props.clear(); buildings.clear(); decals.clear()
         val mr = Random(7 + gmode * 100)
         val skipP = if (gmode == 1) 0.5f else if (gmode == 2) 0.04f else 0.12f
@@ -216,7 +218,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         for (gy in gy0..gy1) for (gx in gx0..gx1) {
             val list = grid[gy * GN + gx]
             for (i in 0 until list.size) {
-                val w = list[i]
+                val w = list.getOrNull(i) ?: break // m18e
                 val nx = if (x < w.x) w.x else if (x > w.x + w.w) w.x + w.w else x
                 val ny = if (y < w.y) w.y else if (y > w.y + w.h) w.y + w.h else y
                 val dx = x - nx
@@ -434,6 +436,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         val dmg = W.dmg[p.weapon]
         for (z in zombies) meleeCheck(p, z, rng, dmg)
         for (g in dogs) meleeCheck(p, g, rng, dmg)
+        if (gmode == 4) gather(p.x, p.y, p.angle, sInv, sTools) { say(it) } // m18u
         if (gmode == 2) for (o in bots) if (!o.dead) {
             val ddx = o.x - p.x
             val ddy = o.y - p.y
@@ -758,7 +761,7 @@ val by = e.y
     }
 
     private fun update(dt: Float) {
-        if ((uiMode != 0 || shopOpen) && sync == null) return
+        if ((uiMode != 0 || shopOpen || craftOpen) && sync == null) return // m18m
         if (sync?.client == true) { updateClientView(dt); return }
         sync?.hostStep(dt)
         reviveHost()
@@ -840,6 +843,7 @@ val by = e.y
         drawCapHud(c, w, h) // m14k
         drawStage2Hud(c, w, h)
         drawStage4Hud(c, w, h)
+        drawSurvHud(c, w, h) // m18f
         drawUi(c, w, h)
     }
 
@@ -884,15 +888,15 @@ val by = e.y
     private fun drawWorld(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float) {
         c.save()
         c.clipRect(0f, 0f, WORLD, WORLD)
-        c.drawColor(0xFF343D33.toInt())
-        for (i in 0..8) {
+        c.drawColor(if (gmode == 4) 0xFF39592F.toInt() else 0xFF343D33.toInt()) // m18g
+        for (i in 0..(if (gmode == 4) -1 else 8)) {
             val r = i * CELL
             if (r + 120f >= y0 && r <= y1) c.drawRect(0f, r, WORLD, r + 120f, fillP(0xFF3A3D42.toInt()))
             if (r + 120f >= x0 && r <= x1) c.drawRect(r, 0f, r + 120f, WORLD, fillP(0xFF3A3D42.toInt()))
         }
         val sx = floor(max(0f, x0) / 60f) * 60f
         val sy = floor(max(0f, y0) / 60f) * 60f
-        for (i in 0..7) {
+        for (i in 0..(if (gmode == 4) -1 else 7)) { // m18h
             val r = i * CELL + 60f
             if (r >= y0 - 5f && r <= y1 + 5f) c.drawLine(sx, r, min(WORLD, x1), r, dash)
             if (r >= x0 - 5f && r <= x1 + 5f) c.drawLine(r, sy, r, min(WORLD, y1), dash)
@@ -954,6 +958,7 @@ for (l in loot) {
                 c.drawRoundRect(rf, 10f, 10f, strokeP(0x88000000.toInt(), 2.5f))
             }
         }
+        if (gmode == 4) drawResLow(c, x0, y0, x1, y1) // m18i
         for (z in zombies) if (z.dead && vis(z, x0, y0, x1, y1)) drawZ(c, z)
         for (g in dogs) if (g.dead && vis(g, x0, y0, x1, y1)) drawDog(c, g)
         for (b in bots) if (b.dead && vis(b, x0, y0, x1, y1)) drawBot(c, b)
@@ -975,6 +980,7 @@ for (l in loot) {
         for (q in parts) {
             c.drawCircle(q.x, q.y, q.size, fillP(q.color))
         }
+        if (gmode == 4) drawResHigh(c, x0, y0, x1, y1) // m18j
         for (b in buildings) {
             if (b.roofA < 0.03f) continue
             if (b.x > x1 || b.x + b.w < x0 || b.y > y1 || b.y + b.h < y0) continue
@@ -1013,6 +1019,7 @@ for (l in loot) {
         for (b in buildings) {
             c.drawRect(x0 + b.x * k, y0 + b.y * k, x0 + (b.x + b.w) * k, y0 + (b.y + b.h) * k, fillP(0xFF6B6B6B.toInt()))
         }
+        if (gmode == 4) for (r in rsl) if (r.type != 0 && r.alive) c.drawCircle(x0 + r.x * k, y0 + r.y * k, 1.2f * d, fillP(if (r.type == 1) 0xFFB0BEC5.toInt() else 0xFFFF9800.toInt())) // m18k
         val rr = 1.6f * d
         for (z in zombies) if (!z.dead) c.drawCircle(x0 + z.x * k, y0 + z.y * k, rr, fillP(0xFFE53935.toInt()))
         for (g in dogs) if (!g.dead) c.drawCircle(x0 + g.x * k, y0 + g.y * k, rr, fillP(0xFFFF9800.toInt()))
@@ -1044,7 +1051,7 @@ for (l in loot) {
         txt(c, "Убито: " + p.kills, bx, ty, 14f * d, 0xFFFFCDD2.toInt(), Paint.Align.LEFT)
         ty += 19f * d
         val alive = bots.count { !it.dead && !it.ally }
-        txt(c, "Выжившие: " + alive + "/20", bx, ty, 14f * d, 0xFFC8E6C9.toInt(), Paint.Align.LEFT)
+        txt(c, if (gmode == 4) survLabel() /* m18l */ else "Выжившие: " + alive + "/20", bx, ty, 14f * d, 0xFFC8E6C9.toInt(), Paint.Align.LEFT)
         val bd = sync?.board
         if (bd != null) {
             for (ln in bd) {
@@ -1107,6 +1114,7 @@ for (l in loot) {
     private fun down(id: Int, x: Float, y: Float) {
         if (hypot(x - mbX, y - mbY) < mbR * 1.5f) { openUi(1); return }
         if (specUi(x, y)) return
+        if (survDown(x, y)) return // m18s
         if (stage4Down(id, x, y)) return
         if (reloadDown(x, y)) return // m13zc
         if (stageDown(id, x, y)) return
@@ -1297,7 +1305,7 @@ for (l in loot) {
             player.dead = false
             player.hp = player.maxHp
             player.deadT = 0f
-            val rb = if (gmode == 3) baseSpot(0) else PointF(2460f, 2460f) // m14g
+            val rb = if (gmode == 3) baseSpot(0) else if (gmode == 4) PointF(WORLD / 2f, WORLD / 2f) else PointF(2460f, 2460f) // m18q
             player.x = rb.x
             player.y = rb.y
             player.cool = 0f
@@ -1330,6 +1338,7 @@ for (l in loot) {
         val dmg = W.dmg[b.weapon]
         for (z in zombies) meleeCheckBot(b, z, rng, dmg)
         for (g in dogs) meleeCheckBot(b, g, rng, dmg)
+        if (gmode == 4) gather(b.x, b.y, b.angle, b.inv, b.tools) { b.say(it) } // m18v
     }
 
     private fun cycleBot(b: Bot) {
@@ -1688,6 +1697,8 @@ for (l in loot) {
             say("PVP: зона сужается, каждый сам за себя!")
         } else if (gmode == 3) {
             capStartMode() // m14b
+        } else if (gmode == 4) {
+            survStart() // m18p
         } else {
             say("Найди оружие и патроны в домах!")
         }
@@ -1704,6 +1715,7 @@ for (l in loot) {
             }
         } else if (gmode == 2) zoneStep(dt)
         else if (gmode == 3) capStep(dt) // m14a
+        else if (gmode == 4) survStep(dt) // m18n
     }
 
     private fun startWave() {
@@ -1983,7 +1995,7 @@ for (l in loot) {
     private fun envStep(dt: Float) {
         // время суток
         val old = dayT
-        dayT += dt / 240f
+        dayT += dt / (if (gmode == 4) 400f else 240f) // m18o
         if (dayT >= 1f) dayT -= 1f
         if (old < 0.5f && dayT >= 0.5f && gmode == 0 && !bossAlive() && !player.dead) spawnBoss()
         // погода
@@ -2264,6 +2276,25 @@ for (l in loot) {
                     path.close()
                     c.clipPath(path)
                     hole(c, 0f, 0f, L)
+                    c.restore()
+                }
+            }
+            for (b in bots) if (b.ally && !b.dead) { // m18zc
+                val bx = (b.x - camX) * s + w / 2f
+                val by = (b.y - camY) * s + h / 2f
+                hole(c, bx, by, 95f * s)
+                if (da > 0.15f) {
+                    c.save()
+                    c.translate(bx, by)
+                    c.rotate(Math.toDegrees(b.angle.toDouble()).toFloat())
+                    val L2 = 430f * s
+                    val path2 = Path()
+                    path2.moveTo(0f, 0f)
+                    path2.lineTo(L2, -L2 * 0.5f)
+                    path2.lineTo(L2, L2 * 0.5f)
+                    path2.close()
+                    c.clipPath(path2)
+                    hole(c, 0f, 0f, L2)
                     c.restore()
                 }
             }
@@ -2977,6 +3008,7 @@ for (l in loot) {
             else if (q == 4) barrBot(b)
             else if (q == 5) toggleCarBot(b)
             else if (q == 6) startReloadB(b) // m13r
+            else if (q in 20..22) craftBot(b, q - 20) // m18t
         }
     }
 
@@ -2998,6 +3030,7 @@ for (l in loot) {
     fun netPeerOut(o: java.io.DataOutputStream, b: Bot?) {
         if (b == null) {
             o.writeByte(100); o.writeByte(0); o.writeByte(0); o.writeByte(0); o.writeByte(0); o.writeByte(0); o.writeByte(-1); o.writeByte(0)
+            o.writeShort(0); o.writeShort(0); o.writeShort(0); o.writeByte(0); o.writeByte(0) // m18w
             return
         }
         o.writeByte(b.stam.toInt().coerceIn(0, 100))
@@ -3010,6 +3043,9 @@ for (l in loot) {
         for (q in 0 until cars.size) if (cars[q] === b.car) ci = q
         o.writeByte(ci)
         o.writeByte(b.team)
+        for (q in 0..2) o.writeShort(b.inv[q].coerceIn(0, 9999)) // m18x
+        o.writeByte(b.tools[0].coerceIn(0, 3))
+        o.writeByte(b.tools[1].coerceIn(0, 3))
     }
 
     fun netPeerIn(i: java.io.DataInputStream) {
@@ -3023,6 +3059,9 @@ for (l in loot) {
         sprinting = (fl and 2) != 0
         pendCar = i.readByte().toInt()
         myTeam = i.readByte().toInt()
+        for (q in 0..2) sInv[q] = i.readShort().toInt() // m18y
+        sTools[0] = i.readByte().toInt()
+        sTools[1] = i.readByte().toInt()
     }
 
     // --- пакет: мир (время суток, погода, гранаты, ловушки, машины, миссия) ---
@@ -3056,6 +3095,7 @@ for (l in loot) {
         n = min(cars.size, 20)
         o.writeByte(n)
         for (q in 0 until n) { o.writeFloat(cars[q].x); o.writeFloat(cars[q].y); o.writeFloat(cars[q].a) }
+        survOut(o) // m18za
     }
 
     fun netWorldIn(i: java.io.DataInputStream) {
@@ -3127,6 +3167,7 @@ for (l in loot) {
         driving = if (pendCar >= 0 && pendCar < cars.size) cars[pendCar] else null
         val dr = driving
         if (dr != null) player.angle = dr.a
+        survIn(i) // m18zb
     }
 
     // ===== перезарядка, следы, гильзы, эффект ранения (m13) =====
@@ -3489,6 +3530,465 @@ for (l in loot) {
             if (a == MotionEvent.ACTION_SCROLL && uiMode == 0 && !gameOver) { nextWeapon(); return true }
         }
         return super.onGenericMotionEvent(e)
+    }
+
+    // ===== РЕЖИМ ВЫЖИВАНИЕ (лес, добыча, крафт) ===== // m18z
+    private var rsl = ArrayList<Res>()
+    val sInv = IntArray(4)
+    val sTools = IntArray(2)
+    private var craftOpen = false
+    private val craftR = Array(4) { RectF() }
+    private val craftBtn = RectF()
+    private var survT = 0f
+    private var nightPrev = false
+    private var resSendUntil = 0L
+    private var resLastFull = 0L
+    private val invNames = arrayOf("дерево", "камень", "железо")
+    private val tn = arrayOf("руки", "дерево", "камень", "железо")
+
+    private fun resHalf(t: Int): Float = if (t == 0) 8f else if (t == 1) 18f else 16f
+    private fun resMaxHp(t: Int): Float = if (t == 0) 9f else if (t == 1) 16f else 22f
+
+    private fun gridAdd(w: Wall, gr: Array<ArrayList<Wall>> = grid, gn: Int = GN) {
+        val x0 = (w.x / G).toInt().coerceIn(0, gn - 1)
+        val x1 = ((w.x + w.w) / G).toInt().coerceIn(0, gn - 1)
+        val y0 = (w.y / G).toInt().coerceIn(0, gn - 1)
+        val y1 = ((w.y + w.h) / G).toInt().coerceIn(0, gn - 1)
+        for (gx in x0..x1) for (gy in y0..y1) gr[gy * gn + gx].add(w)
+    }
+
+    private fun gridDel(w: Wall) {
+        val x0 = (w.x / G).toInt().coerceIn(0, GN - 1)
+        val x1 = ((w.x + w.w) / G).toInt().coerceIn(0, GN - 1)
+        val y0 = (w.y / G).toInt().coerceIn(0, GN - 1)
+        val y1 = ((w.y + w.h) / G).toInt().coerceIn(0, GN - 1)
+        for (gx in x0..x1) for (gy in y0..y1) grid[gy * GN + gx].remove(w)
+    }
+
+    private fun resPut(nl: ArrayList<Res>, ng: Array<ArrayList<Wall>>, gn2: Int, occ: BooleanArray, cn: Int, x: Float, y: Float, t: Int, seed: Int): Boolean {
+        if (x < 120f || y < 120f || x > 9600f - 120f || y > 9600f - 120f) return false
+        if (hypot(x - 4800f, y - 4800f) < 260f) return false
+        val cx = (x / 56f).toInt()
+        val cy = (y / 56f).toInt()
+        if (cx < 0 || cy < 0 || cx >= cn || cy >= cn) return false
+        for (gy in max(0, cy - 1)..min(cn - 1, cy + 1)) for (gx in max(0, cx - 1)..min(cn - 1, cx + 1)) if (occ[gy * cn + gx]) return false
+        occ[cy * cn + cx] = true
+        val r0 = Res(x, y, t, seed)
+        r0.hp = resMaxHp(t)
+        val hf = resHalf(t)
+        val wl = Wall(x - hf, y - hf, hf * 2f, hf * 2f)
+        r0.wall = wl
+        gridAdd(wl, ng, gn2)
+        nl.add(r0)
+        return true
+    }
+
+    private fun forestNoise(x: Float, y: Float): Float {
+        val v = 0.5f + 0.22f * sin(x * 0.00093f + 1.3f) + 0.22f * sin(y * 0.00117f + 0.4f) + 0.18f * sin((x + y) * 0.0006f + 2f)
+        return v.coerceIn(0.1f, 1f)
+    }
+
+    private fun buildForest() {
+        val ws = 9600f
+        val gn2 = (ws / G).toInt()
+        val ng = Array(gn2 * gn2) { ArrayList<Wall>() }
+        val nl = ArrayList<Res>()
+        val mr = Random(4242)
+        val cn = (ws / 56f).toInt() + 1
+        val occ = BooleanArray(cn * cn)
+        val mid = ws / 2f
+        var nT = 0
+        var tries = 0
+        while (nT < 3200 && tries < 45000) {
+            tries++
+            val x = 120f + mr.nextFloat() * (ws - 240f)
+            val y = 120f + mr.nextFloat() * (ws - 240f)
+            if (mr.nextFloat() > forestNoise(x, y)) continue
+            if (resPut(nl, ng, gn2, occ, cn, x, y, 0, mr.nextInt(1000))) nT++
+        }
+        for (k in 0 until 50) {
+            var cx: Float
+            var cy: Float
+            if (k == 0) { cx = mid + 700f; cy = mid + 200f }
+            else if (k == 1) { cx = mid - 650f; cy = mid - 420f }
+            else {
+                cx = 300f + mr.nextFloat() * (ws - 600f)
+                cy = 300f + mr.nextFloat() * (ws - 600f)
+                if (hypot(cx - mid, cy - mid) < 800f) continue
+            }
+            val n = 4 + mr.nextInt(6)
+            for (q in 0 until n) {
+                val a = mr.nextFloat() * 2f * PI_F
+                val rr = 40f + mr.nextFloat() * 150f
+                resPut(nl, ng, gn2, occ, cn, cx + cos(a) * rr, cy + sin(a) * rr, 1, mr.nextInt(1000))
+            }
+        }
+        for (k in 0 until 40) {
+            val cx = 300f + mr.nextFloat() * (ws - 600f)
+            val cy = 300f + mr.nextFloat() * (ws - 600f)
+            if (hypot(cx - mid, cy - mid) < 2100f) continue
+            val n = 3 + mr.nextInt(4)
+            for (q in 0 until n) {
+                val a = mr.nextFloat() * 2f * PI_F
+                val rr = 30f + mr.nextFloat() * 110f
+                resPut(nl, ng, gn2, occ, cn, cx + cos(a) * rr, cy + sin(a) * rr, 2, mr.nextInt(1000))
+            }
+        }
+        val nd = ArrayList<Decal>()
+        for (i in 0 until 900) nd.add(Decal(mr.nextFloat() * ws, mr.nextFloat() * ws, 1, 8f + mr.nextFloat() * 14f))
+        walls.clear(); props.clear(); buildings.clear()
+        decals.clear(); decals.addAll(nd)
+        grid = ng
+        GN = gn2
+        WORLD = ws
+        rsl = nl
+    }
+
+    private fun survStart() {
+        zombies.clear(); dogs.clear(); bots.clear(); loot.clear(); cars.clear()
+        for (i in 0..3) sInv[i] = 0
+        sTools[0] = 0; sTools[1] = 0
+        craftOpen = false; survT = 0f; nightPrev = false
+        for (r in rsl) {
+            if (!r.alive) { val w0 = r.wall; if (w0 != null) gridAdd(w0) }
+            r.alive = true
+            r.hp = resMaxHp(r.type)
+        }
+        player.x = WORLD / 2f
+        player.y = WORLD / 2f
+        camX = player.x
+        camY = player.y
+        player.owned[0] = true
+        player.owned[2] = true
+        player.weapon = 0
+        say("Лес. Бей деревья кулаками или битой, крафти топор и кирку. Ночью придут зомби!")
+    }
+
+    private fun humanNear(x: Float, y: Float, rr: Float): Boolean {
+        if (!player.dead && hypot(player.x - x, player.y - y) < rr) return true
+        for (b in bots) if (b.ally && !b.dead && hypot(b.x - x, b.y - y) < rr) return true
+        return false
+    }
+
+    private fun survHumans(): ArrayList<Ent> {
+        val l = ArrayList<Ent>()
+        if (!player.dead) l.add(player)
+        for (b in bots) if (b.peer != null && !b.dead) l.add(b)
+        return l
+    }
+
+    private fun spawnNear(hs: ArrayList<Ent>, zom: Boolean) {
+        val h0 = hs[rnd.nextInt(hs.size)]
+        for (t in 0 until 14) {
+            val a = rnd.nextFloat() * 2f * PI_F
+            val dd = 640f + rnd.nextFloat() * 320f
+            val x = h0.x + cos(a) * dd
+            val y = h0.y + sin(a) * dd
+            if (x < 80f || y < 80f || x > WORLD - 80f || y > WORLD - 80f) continue
+            if (blocked(x, y, 26f)) continue
+            if (zom) {
+                val ty = waveType(rnd.nextFloat())
+                val z = Zombie(x, y, ty, rnd.nextInt(6))
+                z.hp = zHp(ty); z.r = zRadius(ty); z.maxHp = z.hp
+                z.hunt = true
+                z.angle = rnd.nextFloat() * 2f * PI_F
+                zombies.add(z)
+            } else {
+                val g = Dog(x, y)
+                g.hp = 40f; g.maxHp = 40f; g.r = 11f
+                g.angle = rnd.nextFloat() * 2f * PI_F
+                dogs.add(g)
+            }
+            return
+        }
+    }
+
+    private fun survStep(dt: Float) {
+        for (r in rsl) {
+            if (r.hitT > 0f) r.hitT -= dt
+            if (!r.alive) {
+                r.respT -= dt
+                val w0 = r.wall
+                if (r.respT <= 0f && w0 != null && !humanNear(r.x, r.y, 60f)) {
+                    r.alive = true
+                    r.hp = resMaxHp(r.type)
+                    gridAdd(w0)
+                    resSendUntil = System.currentTimeMillis() + 1500L
+                }
+            }
+        }
+        val night = 0.5f - 0.5f * cos(2f * PI_F * dayT)
+        if (!nightPrev && night > 0.7f) { nightPrev = true; wave++; say("Ночь " + wave + ": держись до рассвета!") }
+        if (nightPrev && night < 0.4f) { nightPrev = false; say("Рассвет! Зомби горят на солнце") }
+        survT += dt
+        val hs = survHumans()
+        if (hs.isEmpty()) return
+        if (nightPrev) {
+            val cap = min(70, 8 + wave * 5 + 6 * (hs.size - 1))
+            if (survT > 1.2f) {
+                survT = 0f
+                var live = 0
+                for (z in zombies) if (!z.dead) live++
+                if (live < cap) spawnNear(hs, true)
+            }
+        } else {
+            for (z in zombies) if (!z.dead) {
+                z.hp -= 30f * dt
+                if (z.hp <= 0f) { z.dead = true; z.deadT = 0f; z.atkT = -1f }
+            }
+            if (survT > 5f) {
+                survT = 0f
+                var live = 0
+                for (g in dogs) if (!g.dead) live++
+                if (live < 3 + 2 * hs.size) spawnNear(hs, false)
+            }
+        }
+    }
+
+    // --- добыча ---
+    private fun nearestRes(x: Float, y: Float, ang: Float): Res? {
+        var best: Res? = null
+        var bd = 1e9f
+        for (r in rsl) {
+            if (!r.alive) continue
+            val dx = r.x - x
+            val dy = r.y - y
+            if (dx > 90f || dx < -90f || dy > 90f || dy < -90f) continue
+            val rr = resHalf(r.type) + 8f
+            val dist = hypot(dx, dy)
+            if (dist > 44f + rr) continue
+            if (abs(normAng(atan2(dy, dx) - ang)) > 1.3f && dist > rr + 6f) continue
+            if (dist < bd) { bd = dist; best = r }
+        }
+        return best
+    }
+
+    private fun resDamage(r: Res, tl: IntArray): Float {
+        val ax = floatArrayOf(1f, 2.2f, 3.6f, 5.6f)
+        val pk = floatArrayOf(0f, 2f, 3.6f, 5.6f)
+        val ir = floatArrayOf(0f, 0f, 2.6f, 5f)
+        return if (r.type == 0) ax[tl[0].coerceIn(0, 3)] else if (r.type == 1) pk[tl[1].coerceIn(0, 3)] else ir[tl[1].coerceIn(0, 3)]
+    }
+
+    private fun gather(x: Float, y: Float, ang: Float, inv: IntArray, tl: IntArray, msgF: (String) -> Unit) {
+        val r = nearestRes(x, y, ang) ?: return
+        val dmg = resDamage(r, tl)
+        if (dmg <= 0f) { msgF(if (r.type == 1) "Нужна кирка (крафт)" else "Нужна каменная кирка"); return }
+        r.hp -= dmg
+        r.hitT = 0.25f
+        sndAt(Snd.HIT, r.x, r.y)
+        splat(r.x, r.y, ang, 3, if (r.type == 0) 0xFF8D6E63.toInt() else 0xFFB0BEC5.toInt())
+        if (r.hp <= 0f) {
+            r.alive = false
+            r.respT = 300f
+            val w0 = r.wall
+            if (w0 != null) gridDel(w0)
+            val n = if (r.type == 0) 3 + tl[0] else if (r.type == 1) 3 + tl[1] else 2 + (if (tl[1] >= 3) 1 else 0)
+            inv[r.type] += n
+            msgF("+" + n + " " + invNames[r.type])
+            resSendUntil = System.currentTimeMillis() + 1500L
+        }
+    }
+
+    // --- крафт ---
+    private fun recipeCost(tl: IntArray, k: Int): IntArray? {
+        if (k == 2) return intArrayOf(2, 0, 3)
+        val lv = tl[k]
+        if (lv >= 3) return null
+        val wd = if (k == 0) intArrayOf(6, 4, 4) else intArrayOf(8, 4, 4)
+        val sn = if (k == 0) intArrayOf(0, 6, 0) else intArrayOf(0, 8, 0)
+        val ir = if (k == 0) intArrayOf(0, 0, 6) else intArrayOf(0, 0, 8)
+        return intArrayOf(wd[lv], sn[lv], ir[lv])
+    }
+
+    private fun canAfford(inv: IntArray, tl: IntArray, k: Int): Boolean {
+        val c0 = recipeCost(tl, k) ?: return false
+        for (i in 0..2) if (inv[i] < c0[i]) return false
+        return true
+    }
+
+    private fun tryCraft(inv: IntArray, tl: IntArray, k: Int): Boolean {
+        if (!canAfford(inv, tl, k)) return false
+        val c0 = recipeCost(tl, k) ?: return false
+        for (i in 0..2) inv[i] -= c0[i]
+        if (k < 2) tl[k]++
+        return true
+    }
+
+    private fun craftP(k: Int) {
+        if (sync?.client == true) { sync?.sendCmd(20 + k); return }
+        if (tryCraft(sInv, sTools, k)) {
+            if (k == 2) { player.ammo += 12; say("+12 патронов") } else say((if (k == 0) "Новый топор: " else "Новая кирка: ") + tn[sTools[k]])
+        } else say("Не хватает ресурсов")
+    }
+
+    private fun craftBot(b: Bot, k: Int) {
+        if (b.dead) return
+        if (tryCraft(b.inv, b.tools, k)) {
+            if (k == 2) { b.ammo += 12; b.say("+12 патронов") } else b.say((if (k == 0) "Новый топор: " else "Новая кирка: ") + tn[b.tools[k]])
+        } else b.say("Не хватает ресурсов")
+    }
+
+    private fun costStr(c0: IntArray): String {
+        val sb = StringBuilder()
+        for (i in 0..2) if (c0[i] > 0) {
+            if (sb.isNotEmpty()) sb.append(", ")
+            sb.append(c0[i]).append(" ").append(invNames[i])
+        }
+        return sb.toString()
+    }
+
+    private fun craftLabel(k: Int): String {
+        val c0 = recipeCost(sTools, k) ?: return (if (k == 0) "Топор" else "Кирка") + ": максимальный уровень"
+        if (k == 2) return "Патроны x12  [" + costStr(c0) + "]"
+        return (if (k == 0) "Топор: " else "Кирка: ") + tn[sTools[k] + 1] + "  [" + costStr(c0) + "]"
+    }
+
+    private fun survDown(x: Float, y: Float): Boolean {
+        if (gmode != 4) return false
+        if (craftOpen) {
+            for (i in 0..3) {
+                if (craftR[i].contains(x, y)) {
+                    if (i == 3) craftOpen = false else craftP(i)
+                }
+            }
+            return true
+        }
+        if (gameOver) return false
+        if (craftBtn.contains(x, y)) { craftOpen = true; return true }
+        return false
+    }
+
+    fun survLabel(): String {
+        val nt = 0.5f - 0.5f * cos(2f * PI_F * dayT)
+        return if (nt > 0.55f) "НОЧЬ " + wave + " - держись!" else "День - собирай ресурсы (ночей: " + wave + ")"
+    }
+
+    // --- рисование ---
+    private fun drawResLow(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float) {
+        for (r in rsl) {
+            if (r.x < x0 - 60f || r.x > x1 + 60f || r.y < y0 - 60f || r.y > y1 + 60f) continue
+            val sh = if (r.hitT > 0f) sin(time * 60f) * 2f else 0f
+            if (!r.alive) {
+                if (r.type == 0) {
+                    c.drawCircle(r.x, r.y, 7f, fillP(0xFF4E342E.toInt()))
+                    c.drawCircle(r.x, r.y, 4f, fillP(0xFF8D6E63.toInt()))
+                } else {
+                    c.drawCircle(r.x, r.y, 7f, fillP(0xFF607D8B.toInt()))
+                }
+                continue
+            }
+            if (r.type == 0) {
+                c.drawCircle(r.x + 4f, r.y + 5f, 11f, fillP(0x33000000))
+                c.drawCircle(r.x + sh, r.y, 8f, fillP(0xFF5D4037.toInt()))
+                c.drawCircle(r.x + sh, r.y, 8f, strokeP(0xFF3E2723.toInt(), 2f))
+            } else {
+                val k = if (r.type == 1) 1f else 0.9f
+                c.drawCircle(r.x + 5f, r.y + 6f, 24f * k, fillP(0x33000000))
+                c.drawCircle(r.x + sh, r.y, 22f * k, fillP(if (r.type == 1) 0xFF8D959B.toInt() else 0xFF5F6B73.toInt()))
+                c.drawCircle(r.x - 7f + sh, r.y - 6f, 13f * k, fillP(if (r.type == 1) 0xFFB0BEC5.toInt() else 0xFF78909C.toInt()))
+                c.drawCircle(r.x + 9f + sh, r.y + 7f, 11f * k, fillP(if (r.type == 1) 0xFF6D767C.toInt() else 0xFF455A64.toInt()))
+                c.drawCircle(r.x + sh, r.y, 22f * k, strokeP(0xFF37474F.toInt(), 2.5f))
+                if (r.type == 2) {
+                    for (q in 0 until 5) {
+                        val a = r.seed * 1.7f + q * 1.26f
+                        c.drawCircle(r.x + cos(a) * 12f * k, r.y + sin(a) * 12f * k, 3.4f, fillP(0xFFE0883A.toInt()))
+                    }
+                }
+            }
+            if (r.hitT > 0f) {
+                val mh = resMaxHp(r.type)
+                c.drawRect(r.x - 14f, r.y - 34f, r.x + 14f, r.y - 30f, fillP(0xAA000000.toInt()))
+                c.drawRect(r.x - 14f, r.y - 34f, r.x - 14f + 28f * max(0f, r.hp) / mh, r.y - 30f, fillP(0xFF8BC34A.toInt()))
+            }
+        }
+    }
+
+    private fun drawResHigh(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float) {
+        for (r in rsl) {
+            if (r.type != 0 || !r.alive) continue
+            if (r.x < x0 - 60f || r.x > x1 + 60f || r.y < y0 - 60f || r.y > y1 + 60f) continue
+            val k = 0.85f + (r.seed % 5) * 0.08f
+            val sw = sin(time * 1.3f + r.seed) * 1.6f
+            val near = hypot(player.x - r.x, player.y - r.y)
+            val a = ((near / 80f).coerceIn(0.45f, 1f) * 235f).toInt()
+            pt.style = Paint.Style.FILL
+            pt.color = 0xFF2E7D32.toInt()
+            pt.alpha = a
+            c.drawCircle(r.x + sw, r.y - 4f, 34f * k, pt)
+            pt.color = 0xFF388E3C.toInt()
+            pt.alpha = a
+            c.drawCircle(r.x - 8f * k + sw, r.y - 10f * k, 22f * k, pt)
+            pt.color = 0xFF43A047.toInt()
+            pt.alpha = a
+            c.drawCircle(r.x + 10f * k + sw, r.y - 2f * k, 18f * k, pt)
+            pt.alpha = 255
+        }
+    }
+
+    private fun drawSurvHud(c: Canvas, w: Float, h: Float) {
+        if (gmode != 4) return
+        val x0 = w / 2f - 110f * d
+        val y0 = h - 42f * d
+        val bh = 34f * d
+        craftBtn.set(x0, y0, x0 + 70f * d, y0 + bh)
+        rf.set(craftBtn)
+        c.drawRoundRect(rf, 8f * d, 8f * d, fillP(0xCC37474F.toInt()))
+        c.drawRoundRect(rf, 8f * d, 8f * d, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+        txt(c, "КРАФТ", craftBtn.centerX(), craftBtn.centerY() + 5f * d, 12f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        val cols = intArrayOf(0xFFA1887F.toInt(), 0xFFB0BEC5.toInt(), 0xFFFF9800.toInt())
+        for (i in 0..2) {
+            val cx = x0 + 70f * d + 18f * d + i * 58f * d
+            c.drawCircle(cx, y0 + bh / 2f, 10f * d, fillP(cols[i]))
+            txt(c, sInv[i].toString(), cx + 14f * d, y0 + bh / 2f + 5f * d, 14f * d, 0xFFFFFFFF.toInt(), Paint.Align.LEFT)
+        }
+        txt(c, "Топор: " + tn[sTools[0].coerceIn(0, 3)] + "   Кирка: " + tn[sTools[1].coerceIn(0, 3)], x0, y0 - 6f * d, 11f * d, 0xFFB0BEC5.toInt(), Paint.Align.LEFT)
+        if (!craftOpen) return
+        c.drawColor(0xDD000000.toInt())
+        val bw = min(w * 0.7f, 520f * d)
+        val bh2 = min(46f * d, (h - 130f * d) / 4f)
+        var y = (h - 4f * (bh2 + 8f * d)) / 2f + 24f * d
+        txt(c, "ИНВЕНТАРЬ И КРАФТ", w / 2f, y - 36f * d, 22f * d, 0xFFFFE082.toInt(), Paint.Align.CENTER)
+        txt(c, "Дерево " + sInv[0] + "    Камень " + sInv[1] + "    Железо " + sInv[2], w / 2f, y - 12f * d, 16f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        for (i in 0..3) {
+            craftR[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh2)
+            val ok = i < 3 && canAfford(sInv, sTools, i)
+            uiBtn(c, craftR[i], if (i == 3) "ЗАКРЫТЬ" else craftLabel(i), ok, 15f)
+            y += bh2 + 8f * d
+        }
+    }
+
+    // --- сеть: ресурсы леса ---
+    private fun survOut(o: java.io.DataOutputStream) {
+        val now = System.currentTimeMillis()
+        val send = gmode == 4 && (now < resSendUntil || now - resLastFull > 2500L)
+        o.writeBoolean(send)
+        if (!send) return
+        if (now >= resSendUntil) resLastFull = now
+        val lst = rsl
+        val n = lst.size
+        o.writeShort(n)
+        val bytes = ByteArray((n + 7) / 8)
+        for (k in 0 until n) if (lst[k].alive) bytes[k shr 3] = (bytes[k shr 3].toInt() or (1 shl (k and 7))).toByte()
+        o.write(bytes)
+    }
+
+    private fun survIn(i: java.io.DataInputStream) {
+        if (!i.readBoolean()) return
+        val n = i.readShort().toInt()
+        val bytes = ByteArray((n + 7) / 8)
+        i.readFully(bytes)
+        val lst = rsl
+        if (gmode != 4 || lst.size != n) return
+        for (k in 0 until n) {
+            val a = ((bytes[k shr 3].toInt() shr (k and 7)) and 1) == 1
+            val r = lst[k]
+            if (r.alive != a) {
+                r.alive = a
+                val w0 = r.wall
+                if (a) { r.hp = resMaxHp(r.type); if (w0 != null) gridAdd(w0) } else { if (w0 != null) gridDel(w0) }
+            }
+        }
     }
 
     init {

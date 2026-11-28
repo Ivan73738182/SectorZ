@@ -120,7 +120,16 @@ class Bot(x: Float, y: Float, val look: Look, val ally: Boolean) : Ent(x, y) {
     var car: GameView.Car? = null
     val mags = IntArray(10)
     var reload = 0f // m13b
+    val inv = IntArray(4) // m18a1
+    val tools = IntArray(2)
 }
 
 class Zombie(x: Float, y: Float, val type: Int, val variant: Int) : Ent(x, y) { var aux = 0f }
 class Dog(x: Float, y: Float) : Ent(x, y)
+class Res(val x: Float, val y: Float, val type: Int, val seed: Int) {
+    var hp = 0f
+    var alive = true
+    var hitT = 0f
+    var respT = 0f
+    var wall: Wall? = null
+}
