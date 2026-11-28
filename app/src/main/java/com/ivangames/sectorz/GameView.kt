@@ -2279,10 +2279,16 @@ for (l in loot) {
         }
         if (weather == 1) {
             val p = strokeP(0x55B3E5FC, 1.5f * d)
-            for (i in 0 until 90) {
-                val x = (i * 97.3f + time * 60f) % w
-                val y = (i * 53.7f + time * 900f) % h
-                c.drawLine(x, y, x - 5f * d, y + 16f * d, p)
+            val n = (w * h / (d * d) / 2600f).toInt().coerceIn(50, 260) // m17a
+            val len = 16f * d
+            val fall = 780f * d / h
+            for (i in 0 until n) {
+                val fx = (i * 0.6180339f) % 1f
+                val fy = (i * 0.7548777f) % 1f
+                val v = fall * (0.85f + ((i * 0.3183f) % 1f) * 0.4f)
+                val x = fx * (w + 60f * d) - 10f * d
+                val y = ((fy + time * v) % 1f) * (h + len * 2f) - len
+                c.drawLine(x, y, x - 5f * d, y + len, p)
             }
         }
     }
