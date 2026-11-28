@@ -246,7 +246,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         Snd.play(Snd.CLICK, 1f)
         if (id == 0) { pendKind = 0; screen = 3 }
         else if (id == 3) { save(); screen = 5; Online.find() } // m15k
-        else if (id in 20..24) { // m18v save(); onPlay(pendKind + 10 * (id - 20), skin) }
+        else if (id in 20..24) { save(); onPlay(pendKind + 10 * (id - 20), skin) } // m18v
         else if (id == 1) screen = 2
         else if (id == 11) { pendKind = 2; screen = 3 }
         else if (id == 12) { save(); onPlay(3, skin) }
