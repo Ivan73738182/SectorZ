@@ -18,6 +18,8 @@ class NetPeer(val sock: Socket) {
     @Volatile var ay = 0f
     @Volatile var atk = false
     @Volatile var swSeq = 0
+    @Volatile var sprint = false // m12
+    val cmds = java.util.concurrent.ConcurrentLinkedQueue<Int>()
     @Volatile var lastSw = 0
     @Volatile var gotInput = false
     @Volatile var skin = 0
@@ -220,7 +222,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
                     val bi = DataInputStream(ByteArrayInputStream(b))
                     val type = bi.readByte().toInt()
                     if (type == 3) {
-                        pr.skin = bi.readByte().toInt().coerceIn(0, 3)
+                        pr.skin = bi.readByte().toInt().coerceIn(0, 7)
                         pr.name = bi.readUTF()
                         pr.hello = true
                     } else if (type == 1) {
@@ -232,6 +234,9 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
                         val sq = bi.readByte().toInt()
                         if (!pr.gotInput) { pr.lastSw = sq; pr.gotInput = true }
                         pr.swSeq = sq
+                        pr.sprint = bi.readByte().toInt() != 0 // m12b
+                    } else if (type == 5) {
+                        pr.cmds.add(bi.readByte().toInt())
                     } else if (type == 4) {
                         g.chatFrom(pr.name, bi.readUTF())
                     }
@@ -266,7 +271,10 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
                 nb.owned[0] = true
                 nb.owned[3] = true
                 nb.ammo = 24
+                nb.mags[3] = 12 // m13n
                 nb.peer = pr
+                nb.team = pr.id % 2
+                g.placeAtBase(nb) // m14n
                 nb.name = pr.name
                 pr.bot = nb
                 g.bots.add(nb)
@@ -319,6 +327,8 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         o.writeFloat(flash)
         o.writeByte(weapon)
         o.writeShort(ammo.coerceIn(0, 30000))
+        o.writeByte(g.magOf(e))
+        o.writeByte(g.reloadOf(e)) // m13h
         o.writeShort(kills.coerceIn(0, 30000))
         var m = 0
         for (k in 0 until 10) if (owned[k]) m = m or (1 shl k)
@@ -383,6 +393,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
             o.writeFloat(g.evY[q])
         }
         g.evN = 0
+        g.netWorldOut(o) // m12d
         o.flush()
         return bo.toByteArray()
     }
@@ -407,6 +418,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
             o.writeByte(if (g.pvpOver) 1 else 0)
             o.writeByte(g.chatSeq and 127)
             o.writeUTF(g.chatLine)
+            g.netPeerOut(o, b) // m12c
             o.write(body)
             o.flush()
             pr.send(bo.toByteArray())
@@ -504,19 +516,22 @@ val pr = NetPeer(s)
         val cl = i.readUTF()
         if (lastChat == -2) lastChat = cs
         else if (cs != lastChat) { lastChat = cs; if (cl.isNotEmpty()) g.chatAdd(cl) }
+        g.netPeerIn(i) // m12e
         val nh = i.readByte().toInt()
         val oldBots = ArrayList<Bot>(g.bots)
         val newBots = ArrayList<Bot>()
         val lines = ArrayList<String>()
         for (k in 0 until nh) {
             val id = i.readByte().toInt()
-            val sk = i.readByte().toInt().coerceIn(0, 3)
+            val sk = i.readByte().toInt().coerceIn(0, 7) // m13sk
             if (id == myId) {
                 val p = g.player
                 rEnt(i, p, false, true)
                 p.flash = i.readFloat()
                 p.weapon = i.readByte().toInt()
                 p.ammo = i.readShort().toInt()
+                p.mags[p.weapon.coerceIn(0, 9)] = i.readByte().toInt()
+                p.reload = i.readByte().toInt() / 20f // m13i
                 p.kills = i.readShort().toInt()
                 val m = i.readShort().toInt()
                 i.readUTF()
@@ -534,9 +549,11 @@ val pr = NetPeer(s)
                 bt.flash = i.readFloat()
                 bt.weapon = i.readByte().toInt()
                 i.readShort()
+                i.readByte(); i.readByte() // m13j
                 val kl = i.readShort().toInt()
                 i.readShort() // m10
                 bt.name = i.readUTF()
+                bt.team = id % 2 // m14t
                 lines.add(bt.name + ": " + kl)
                 newBots.add(bt)
             }
@@ -622,8 +639,10 @@ val pr = NetPeer(s)
             val ey = i.readFloat()
             g.playEvent(eid, ex, ey)
         }
+        g.netWorldIn(i) // m12f
         if (!got) {
             got = true
+            g.missBase = g.hostMiss
             g.player.x = g.player.wx
             g.player.y = g.player.wy
         }
@@ -639,7 +658,13 @@ val pr = NetPeer(s)
         o.writeFloat(ax)
         o.writeFloat(ay)
         o.writeByte(swSeq)
+        o.writeByte(if (g.wantSprint()) 1 else 0) // m12g
         pr.send(bo.toByteArray())
+    }
+
+    fun sendCmd(c: Int) {
+        val pr = me ?: return
+        pr.send(byteArrayOf(5, c.toByte()))
     }
 
     fun sendChat(t: String) {
@@ -667,7 +692,7 @@ val pr = NetPeer(s)
             val p = g.player
             val dist = hypot(p.wx - p.x, p.wy - p.y)
             var kk = 0f
-            if (p.dead || dist > 150f) kk = min(1f, dt * 10f)
+            if (p.dead || dist > 150f || g.driving != null) kk = min(1f, dt * 14f) // m12h
             else if (!p.moving) kk = min(1f, dt * 4f)
             p.x += (p.wx - p.x) * kk
             p.y += (p.wy - p.y) * kk

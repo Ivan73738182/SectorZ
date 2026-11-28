@@ -15,7 +15,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
 
     private val d = resources.displayMetrics.density
     private val prefs = ctx.getSharedPreferences("sectorz", Context.MODE_PRIVATE)
-    private var skin = prefs.getInt("skin", 0).coerceIn(0, 3)
+    private var skin = prefs.getInt("skin", 0).coerceIn(0, 7)
     private var screen = 0
     private var pressed = -1
     private var time = 0f
@@ -27,13 +27,15 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private val rf = RectF()
     private val btn = Array(3) { RectF() }
     private val cards = Array(4) { RectF() }
+    private var skinPage = if (skin >= 4) 1 else 0 // m13s1
+    private val pgBtn = RectF()
     private val backBtn = RectF()
     private val mp = Array(2) { RectF() }
     private val ctlBtn = RectF()
     private var pendKind = 0
     private val nameBtn = RectF()
     private val stBtn = Array(3) { RectF() }
-    private val mm = Array(3) { RectF() }
+    private val mm = Array(4) { RectF() } // m14u
     private var vig: Paint? = null
     private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ")
     private val subs = arrayOf("режимы: свободный, волны, PVP", "по Wi-Fi: до 4 игроков", "")
@@ -170,6 +172,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         nameBtn.set(cx2 - 115f * d, top - 46f * d, cx2 + 115f * d, top - 12f * d)
         drawButton(c, nameBtn, "ИМЯ: " + (prefs.getString("name", "Игрок") ?: "Игрок"), "", pressed == 30)
         for (i in 0..3) {
+            val gi = skinPage * 4 + i
             val l = left + (i % 2) * (cs + g2)
             val t = top + (i / 2) * (cs + g2)
             cards[i].set(l, t, l + cs, t + cs)
@@ -178,16 +181,27 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
             p.color = 0xAA1B2226.toInt()
             c.drawRoundRect(rf, 14f * d, 14f * d, p)
             p.style = Paint.Style.STROKE
-            p.strokeWidth = (if (i == skin) 4f else 1.5f) * d
-            p.color = if (i == skin) 0xFFFFA000.toInt() else 0x66FFFFFF
+            p.strokeWidth = (if (gi == skin) 4f else 1.5f) * d
+            p.color = if (gi == skin) 0xFFFFA000.toInt() else 0x66FFFFFF
             c.drawRoundRect(rf, 14f * d, 14f * d, p)
             c.save()
             c.translate(rf.centerX(), rf.centerY() - cs * 0.06f)
             c.scale(cs / 62f, cs / 62f)
-            Sprites.human(c, Looks.players[i], -0.5f, time * 6f, i == skin, -1f, 0f, 3, 0)
+            Sprites.human(c, Looks.players[gi], -0.5f, time * 6f, gi == skin, -1f, 0f, 3, 0)
             c.restore()
-            txt(c, Looks.names[i], rf.centerX(), rf.bottom - 10f * d, 14f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            txt(c, Looks.names[gi], rf.centerX(), rf.bottom - 10f * d, 14f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
         }
+        pgBtn.set(left + total + 4f * d, top + total / 2f - 26f * d, left + total + 60f * d, top + total / 2f + 26f * d) // m13s2
+        rf.set(pgBtn)
+        p.style = Paint.Style.FILL
+        p.color = 0xAA1B2226.toInt()
+        c.drawRoundRect(rf, 12f * d, 12f * d, p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = 1.5f * d
+        p.color = 0x99FFA000.toInt()
+        c.drawRoundRect(rf, 12f * d, 12f * d, p)
+        txt(c, "СКИНЫ", pgBtn.centerX(), pgBtn.centerY() - 2f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        txt(c, (skinPage + 1).toString() + "/2", pgBtn.centerX(), pgBtn.centerY() + 14f * d, 12f * d, 0xFFFFCA28.toInt(), Paint.Align.CENTER)
     }
 
     private fun drawSettings(c: Canvas, w: Float, h: Float) {
@@ -202,7 +216,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private fun hit(x: Float, y: Float): Int {
         if (screen == 4) return if (backBtn.contains(x, y)) 10 else -1
         if (screen == 3) {
-            for (i in 0..2) if (mm[i].contains(x, y)) return 20 + i
+            for (i in 0..(if (pendKind == 2) 3 else 2)) if (mm[i].contains(x, y)) return 20 + i // m14v
             return if (backBtn.contains(x, y)) 10 else -1
         }
         if (screen == 2) {
@@ -218,6 +232,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         for (i in 0..2) if (btn[i].contains(x, y)) return i
         if (nameBtn.contains(x, y)) return 30
         if (medalR.contains(x, y)) return 31
+        if (pgBtn.contains(x, y)) return 50
         for (i in 0..3) if (cards[i].contains(x, y)) return 4 + i
         return -1
     }
@@ -229,7 +244,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private fun click(id: Int) {
         Snd.play(Snd.CLICK, 1f)
         if (id == 0) { pendKind = 0; screen = 3 }
-        else if (id in 20..22) { save(); onPlay(pendKind + 10 * (id - 20), skin) }
+        else if (id in 20..23) { save(); onPlay(pendKind + 10 * (id - 20), skin) }
         else if (id == 1) screen = 2
         else if (id == 11) { pendKind = 2; screen = 3 }
         else if (id == 12) { save(); onPlay(3, skin) }
@@ -240,7 +255,8 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         else if (id == 41) Cfg.nextAim(context)
         else if (id == 42) Cfg.nextFps(context)
         else if (id == 2) screen = 1
-        else if (id in 4..7) { skin = id - 4; save() }
+        else if (id == 50) skinPage = 1 - skinPage
+        else if (id in 4..7) { skin = skinPage * 4 + (id - 4); save() }
         else if (id == 10) screen = 0
     }
 
@@ -309,12 +325,12 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
         txt(c, "ВЫБЕРИ РЕЖИМ", w / 2f, h * 0.17f, 34f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
         val bw = min(w * 0.55f, 460f * d)
-        val bh = min(66f * d, h * 0.14f)
-        val g = min(12f * d, h * 0.022f)
-        var y = h * 0.25f
-        val tt = arrayOf("СВОБОДНЫЙ", "ВОЛНЫ", "PVP")
-        val ss = arrayOf("город, боты-выжившие, зомби и собаки", "зомби идут волнами, союзников нет", "зона сужается, каждый сам за себя")
-        for (i in 0..2) {
+        val bh = min(66f * d, h * 0.115f) // m14w
+        val g = min(12f * d, h * 0.018f)
+        var y = h * 0.23f
+        val tt = arrayOf("СВОБОДНЫЙ", "ВОЛНЫ", "PVP", "ЗАХВАТ БАЗЫ")
+        val ss = arrayOf("город, боты-выжившие, зомби и собаки", "зомби идут волнами, союзников нет", "зона сужается, каждый сам за себя", "команды 2 на 2, держи точку в центре")
+        for (i in 0..(if (pendKind == 2) 3 else 2)) {
             mm[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
             drawButton(c, mm[i], tt[i], ss[i], pressed == 20 + i)
             y += bh + g

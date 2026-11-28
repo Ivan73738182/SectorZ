@@ -277,6 +277,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         player = Player(2460f, 2460f, Looks.players[skin])
         player.owned[0] = true
         player.owned[3] = true
+        player.mags[3] = 12 // m13g
         camX = player.x
         camY = player.y
         for (b in buildings) {
@@ -372,6 +373,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         e.hurtT = 0.15f
         sndAt(Snd.HIT, e.x, e.y)
         splat(e.x, e.y, ang, 4, 0xFF8B1A1A.toInt())
+        if (rnd.nextInt(3) == 0) addStain(e.x, e.y, 3f + rnd.nextFloat() * 3f, 14f) // m13v
         moveEnt(e, cos(ang) * 5f, sin(ang) * 5f)
         if (e.hp <= 0f) {
             e.dead = true
@@ -380,6 +382,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
             if (owner is Bot) owner.kills++ else if (byPlayer) player.kills++
             sndAt(Snd.DEATH, e.x, e.y)
             splat(e.x, e.y, ang, 10, 0xFF6B1010.toInt())
+            addStain(e.x, e.y, 9f + rnd.nextFloat() * 7f, 30f) // m13w
             afterDeath(e, byPlayer && owner !is Bot)
         }
     }
@@ -391,7 +394,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         t.hurtT = 0.2f
         sndAt(Snd.HURT, t.x, t.y)
         splat(t.x, t.y, ang, 5, 0xFFA01818.toInt())
-        if (t === player) hitFlash = 0.35f
+        if (t === player) { hitFlash = 0.35f; shakeT = 0.3f } // m13l
         if (t.hp <= 0f) {
             t.dead = true
             t.deadT = 0f
@@ -411,6 +414,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
         }
         if (owner === player) noiseT = 1.6f
         sndAt(Snd.shotFor(w), x, y)
+        addShell(x, y, ang, w) // m13u
     }
 
     private fun meleeCheck(p: Player, e: Ent, rng: Float, dmg: Float) {
@@ -450,6 +454,7 @@ class GameView(ctx: Context, private val skin: Int, private val multi: Boolean, 
             if (p.owned[i]) { p.weapon = i; break }
         }
         p.atkT = -1f
+        p.reload = 0f // m13f
     }
 
     // ---------- ИИ ----------
@@ -608,7 +613,7 @@ val by = e.y
                 } else {
                     p.owned[id] = true
                     p.weapon = id
-                    if (W.isGun(id)) p.ammo += 12
+                    if (W.isGun(id)) { p.ammo += 12; p.mags[id] = W.mag[id] } // m13d
                     say("Найдено: " + W.names[id])
                     true
                 }
@@ -621,6 +626,7 @@ val by = e.y
         p.hurtT = max(0f, p.hurtT - dt)
         p.cool -= dt
         p.flash -= dt
+        if (p.reload > 0f) { p.reload -= dt; if (p.reload <= 0f) { p.reload = 0f; finishReloadP(p) } } // m13a
         if (p.dead) { p.deadT += dt * reviveMul(p); p.moving = false; driving = null; return }
         if (driving != null) { driveStep(dt); return }
         val mag = hypot(joyDx, joyDy)
@@ -638,11 +644,15 @@ val by = e.y
         else if (p.moving) turn(p, moveAng, 14f, dt)
         if (atk && p.cool <= 0f && p.atkT < 0f) {
             if (W.isGun(p.weapon)) {
-                if (p.ammo > 0) {
+                if (p.reload > 0f) {
+                    p.cool = 0.1f
+                } else if (p.mags[p.weapon] > 0) {
                     fire(p.x, p.y, p.angle, p.weapon, true, p)
-                    p.ammo--
+                    p.mags[p.weapon]--
                     p.cool = W.cd[p.weapon]
                     p.flash = 0.07f
+                } else if (p.ammo > 0) {
+                    startReloadP(p) // m13c
                 } else {
                     p.cool = 0.5f
                     say("Нет патронов!")
@@ -699,7 +709,7 @@ val by = e.y
                     splat(b.x, b.y, atan2(-b.vy, -b.vx), 3, 0xFFFFD54F.toInt())
                 } else {
                     val hit = if (b.owner is Zombie) null else hitTest(b)
-                    if (hit == null && (gmode == 2 || b.owner is Zombie)) {
+                    if (hit == null && (gmode == 2 || gmode == 3 || b.owner is Zombie)) { // m14d
                         val hh = hitHuman(b)
                         if (hh != null) {
                             val was = hh.dead
@@ -761,14 +771,15 @@ val by = e.y
         for (g in dogs) updateMonster(g, dt, 150f, 750f, 9f, 0.35f, 0.65f, 8f)
         updateBullets(dt)
         updateParts(dt)
+        updateFx3(dt) // m13t1
         updateLoot(dt)
         zombies.removeAll { it.dead && it.deadT > 10f }
         dogs.removeAll { it.dead && it.deadT > 10f }
         bots.removeAll { it.dead && it.deadT > 15f && it.peer == null }
         spawnT += dt
-        if (spawnT > 2.5f && gmode == 0) {
+        if (spawnT > 2.5f && (gmode == 0 || gmode == 3)) { // m14c
             spawnT = 0f
-            if (zombies.size < 80) spawnZombie()
+            if (zombies.size < (if (gmode == 3) 40 else 80)) spawnZombie()
             if (dogs.size < 18 && rnd.nextInt(3) == 0) spawnDog()
         }
         for (b in buildings) {
@@ -808,7 +819,8 @@ val by = e.y
         val s = h / 700f
         c.drawColor(0xFF0B0B0B.toInt())
         c.save()
-        c.translate(w / 2f, h / 2f)
+        val shk = if (shakeT > 0f) shakeT / 0.3f * 9f * d else 0f // m13o
+        c.translate(w / 2f + (rnd.nextFloat() - 0.5f) * shk, h / 2f + (rnd.nextFloat() - 0.5f) * shk)
         c.scale(s, s)
         c.translate(-camX, -camY)
         val x0 = camX - w / 2f / s - 40f
@@ -820,9 +832,10 @@ val by = e.y
         drawDark(c, w, h, s)
         val v = vignette
         if (v != null) c.drawRect(0f, 0f, w, h, v)
-        if (hitFlash > 0f) c.drawColor(Color.argb(min(160, (hitFlash * 400f).toInt()), 200, 0, 0))
+        drawHurt(c, w, h) // m13q
         drawHud(c, w, h)
         drawModeHud(c, w, h)
+        drawCapHud(c, w, h) // m14k
         drawStage2Hud(c, w, h)
         drawStage4Hud(c, w, h)
         drawUi(c, w, h)
@@ -894,6 +907,7 @@ val by = e.y
                 c.drawOval(rf, fillP(0x44223344))
             }
         }
+        drawMarks(c, x0, y0, x1, y1) // m13x
         for (b in buildings) {
             if (b.x > x1 || b.x + b.w < x0 || b.y > y1 || b.y + b.h < y0) continue
             c.drawRect(b.x, b.y, b.x + b.w, b.y + b.h, fillP(0xFF6B5A47.toInt()))
@@ -1023,7 +1037,7 @@ for (l in loot) {
         c.drawRoundRect(rf, 6f * d, 6f * d, fillP(if (p.hp > 35f) 0xFFD32F2F.toInt() else 0xFFFF1744.toInt()))
         txt(c, "HP " + max(0, p.hp.toInt()), bx + 6f * d, by + bh - 4f * d, 12f * d, 0xFFFFFFFF.toInt(), Paint.Align.LEFT)
         var ty = by + bh + 22f * d
-        txt(c, W.names[p.weapon] + (if (W.isGun(p.weapon)) "   патроны: " + p.ammo else ""), bx, ty, 15f * d, 0xFFFFFFFF.toInt(), Paint.Align.LEFT)
+        txt(c, W.names[p.weapon] + (if (W.isGun(p.weapon)) "   " + p.mags[p.weapon] + " / " + p.ammo + (if (p.reload > 0f) "  ПЕРЕЗАРЯДКА" else "") else ""), bx, ty, 15f * d, 0xFFFFFFFF.toInt(), Paint.Align.LEFT)
         ty += 20f * d
         txt(c, "Убито: " + p.kills, bx, ty, 14f * d, 0xFFFFCDD2.toInt(), Paint.Align.LEFT)
         ty += 19f * d
@@ -1058,6 +1072,7 @@ for (l in loot) {
         c.drawCircle(swX, swY, swR, fillP(0x88455A64.toInt()))
         c.drawCircle(swX, swY, swR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
         txt(c, "СМЕНА", swX, swY + 4f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        drawReloadBtn(c) // m13zb
 
         if (gameOver && sync != null && gmode != 2) {
             c.drawColor(Color.argb(min(170, (overT * 300f).toInt()), 0, 0, 0))
@@ -1085,6 +1100,7 @@ for (l in loot) {
         if (hypot(x - mbX, y - mbY) < mbR * 1.5f) { openUi(1); return }
         if (specUi(x, y)) return
         if (stage4Down(id, x, y)) return
+        if (reloadDown(x, y)) return // m13zc
         if (stageDown(id, x, y)) return
         if (!gameOver) {
             if (hypot(x - swX, y - swY) < swR * 1.4f) { nextWeapon(); return }
@@ -1231,10 +1247,11 @@ for (l in loot) {
         if (hitFlash > 0f) hitFlash -= dt
         if (msgT > 0f) msgT -= dt
         val pm = hypot(joyDx, joyDy)
-        player.moving = pm > 0.15f && !player.dead
+        player.moving = pm > 0.15f && !player.dead && driving == null // m12j
         if (player.moving) {
             val ma = atan2(joyDy, joyDx)
-            val msp = 175f * min(1f, pm)
+            var msp = 175f * min(1f, pm)
+            if (tired) msp *= 0.8f else if (sprintId != -1) msp *= 1.5f // m12k
             moveEnt(player, cos(ma) * msp * dt, sin(ma) * msp * dt)
             player.walk += dt * (6f + msp * 0.06f)
         }
@@ -1242,8 +1259,9 @@ for (l in loot) {
             if (atkId != -1 && hypot(atkDx, atkDy) > 0.3f) player.angle = atan2(atkDy, atkDx)
             else if (player.moving) turn(player, atan2(joyDy, joyDx), 14f, dt)
         }
+        updateFx3(dt); guestFx() // m13t2
         sync?.clientStep(dt, joyDx, joyDy, atkId != -1, atkDx, atkDy)
-        if (player.hp < clientHp - 0.5f) hitFlash = 0.35f
+        if (player.hp < clientHp - 0.5f) { hitFlash = 0.35f; shakeT = 0.3f } // m13m
         clientHp = player.hp
         if (player.dead && !gameOver) { gameOver = true; overT = 0f }
         if (!player.dead && gameOver) gameOver = false
@@ -1267,8 +1285,9 @@ for (l in loot) {
             player.dead = false
             player.hp = player.maxHp
             player.deadT = 0f
-            player.x = 2460f
-            player.y = 2460f
+            val rb = if (gmode == 3) baseSpot(0) else PointF(2460f, 2460f) // m14g
+            player.x = rb.x
+            player.y = rb.y
             player.cool = 0f
             player.atkT = -1f
             gameOver = false
@@ -1281,8 +1300,7 @@ for (l in loot) {
         b.hp = b.maxHp
         b.deadT = 0f
         b.atkT = -1f
-        b.x = player.x
-        b.y = player.y
+        if (gmode == 3) { placeAtBase(b) } else { b.x = player.x; b.y = player.y } // m14h
     }
 
     private fun meleeCheckBot(b: Bot, e: Ent, rng: Float, dmg: Float) {
@@ -1309,6 +1327,7 @@ for (l in loot) {
             if (b.owned[i]) { b.weapon = i; break }
         }
         b.atkT = -1f
+        b.reload = 0f // m13cy
     }
 
     private fun pickupBot(b: Bot, l: Loot): Boolean {
@@ -1328,15 +1347,21 @@ for (l in loot) {
                     true
                 }
             }
+            3 -> {
+                if (b.gren >= 6) false else { b.gren++; b.say("Граната +1"); true }
+            }
+            4 -> {
+                if (b.molo >= 5) false else { b.molo++; b.say("Коктейль +1"); true }
+            }
             else -> {
-                val id = l.id
+                val id = l.id // m12n
                 if (id >= 8) return false
                 if (b.owned[id]) {
                     if (W.isGun(id)) { b.ammo += 15; b.say("+15 патронов"); true } else { false }
                 } else {
                     b.owned[id] = true
                     b.weapon = id
-                    if (W.isGun(id)) b.ammo += 12
+                    if (W.isGun(id)) { b.ammo += 12; b.mags[id] = W.mag[id] } // m13e
                     b.say("Найдено: " + W.names[id])
                     true
                 }
@@ -1350,17 +1375,22 @@ for (l in loot) {
         b.flash -= dt
         if (b.dead) {
             b.deadT += dt * reviveMul(b)
+            b.car = null // m12l
             b.moving = false
             b.atkT = -1f
             if (b.deadT > 6f && gmode != 2) reviveBot(b)
             return
         }
+        botCmds(b, pr) // m12m
+        botReload(b, dt)
+        if (b.car != null) { driveBot(b, pr, dt); return }
         val mag = hypot(pr.jx, pr.jy)
         b.moving = mag > 0.15f
+        val spm = botEnv(b, pr, dt, b.moving)
         var moveAng = b.angle
         if (b.moving) {
             moveAng = atan2(pr.jy, pr.jx)
-            val sp = 175f * min(1f, mag)
+            val sp = 175f * min(1f, mag) * spm
             moveEnt(b, cos(moveAng) * sp * dt, sin(moveAng) * sp * dt)
             b.walk += dt * (6f + sp * 0.06f)
         }
@@ -1370,11 +1400,15 @@ for (l in loot) {
         if (pr.swSeq != pr.lastSw) { pr.lastSw = pr.swSeq; cycleBot(b) }
         if (pr.atk && b.cool <= 0f && b.atkT < 0f) {
             if (W.isGun(b.weapon)) {
-                if (b.ammo > 0) {
+                if (b.reload > 0f) {
+                    b.cool = 0.1f
+                } else if (b.mags[b.weapon] > 0) {
                     fire(b.x, b.y, b.angle, b.weapon, true, b)
-                    b.ammo--
+                    b.mags[b.weapon]--
                     b.cool = W.cd[b.weapon]
                     b.flash = 0.07f
+                } else if (b.ammo > 0) {
+                    startReloadB(b) // m13k
                 } else {
                     b.cool = 0.5f
                     b.say("Нет патронов!")
@@ -1639,6 +1673,8 @@ for (l in loot) {
             val sp = freePoint(0f)
             player.x = sp.x; player.y = sp.y; camX = sp.x; camY = sp.y
             say("PVP: зона сужается, каждый сам за себя!")
+        } else if (gmode == 3) {
+            capStartMode() // m14b
         } else {
             say("Найди оружие и патроны в домах!")
         }
@@ -1654,6 +1690,7 @@ for (l in loot) {
                 if (waveT <= 0f) startWave()
             }
         } else if (gmode == 2) zoneStep(dt)
+        else if (gmode == 3) capStep(dt) // m14a
     }
 
     private fun startWave() {
@@ -1772,14 +1809,14 @@ for (l in loot) {
     }
 
     private fun hitHuman(b: Bullet): Ent? {
-        if (!player.dead && b.owner !== player) {
+        if (!player.dead && b.owner !== player && !sameTeam(b.owner, player)) { // m14e
             val dx = player.x - b.x
             val dy = player.y - b.y
             val rr = player.r + 2f
             if (dx * dx + dy * dy < rr * rr) return player
         }
         for (o in bots) {
-            if (o.dead || o === b.owner) continue
+            if (o.dead || o === b.owner || sameTeam(b.owner, o)) continue // m14f
             val dx = o.x - b.x
             val dy = o.y - b.y
             val rr = o.r + 2f
@@ -1798,7 +1835,7 @@ for (l in loot) {
     }
 
     private fun specUi(x: Float, y: Float): Boolean {
-        if (gmode != 2) return false
+        if (gmode == 3) { if (!pvpOver) return false } else if (gmode != 2) return false // m14i
         if (pvpOver) {
             if (sync?.client != true && retryR.contains(x, y)) { reset(); return true }
             if (menuR.contains(x, y)) { onExit(); return true }
@@ -1872,7 +1909,12 @@ for (l in loot) {
 
     private fun drawNames(c: Canvas) {
         if (!player.dead) txt(c, myName, player.x, player.y + 34f, 15f, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
-        for (b in bots) if (!b.dead && b.name.isNotEmpty()) txt(c, b.name, b.x, b.y + 34f, 15f, 0xFF80D8FF.toInt(), Paint.Align.CENTER)
+        if (gmode == 3 && !player.dead) c.drawCircle(player.x, player.y, 18f, strokeP(teamCol(myTeam), 3f)) // m14m
+        for (b in bots) if (!b.dead && b.name.isNotEmpty()) {
+            val en = gmode == 3 && b.team != myTeam
+            txt(c, b.name, b.x, b.y + 34f, 15f, if (en) 0xFFFF5252.toInt() else 0xFF80D8FF.toInt(), Paint.Align.CENTER)
+            if (gmode == 3) c.drawCircle(b.x, b.y, 18f, strokeP(teamCol(b.team), 3f))
+        }
     }
 
 
@@ -2125,10 +2167,10 @@ for (l in loot) {
     private fun sbY(i: Int): Float = 160f * d + i * 38f * d
 
     private fun stageDown(id: Int, x: Float, y: Float): Boolean {
-        if (gameOver || sync?.client == true) return false
+        if (gameOver) return false // m12i
         for (i in 0..2) {
             if (hypot(x - sbX(), y - sbY(i)) < 21f * d) {
-                if (i == 0) sprintId = id else if (i == 1) throwItem(0) else throwItem(1)
+                if (i == 0) sprintId = id else if (sync?.client == true) sync?.sendCmd(i) else throwItem(i - 1)
                 return true
             }
         }
@@ -2136,7 +2178,7 @@ for (l in loot) {
     }
 
     private fun drawStage2Hud(c: Canvas, w: Float, h: Float) {
-        if (sync?.client != true) {
+        if (true) { // m12p
             val bx = 16f * d
             val by = 60f * d + 19f * d
             c.drawRoundRect(RectF(bx, by, bx + 190f * d, by + 7f * d), 3f * d, 3f * d, fillP(0x88000000.toInt()))
@@ -2316,7 +2358,7 @@ for (l in loot) {
 
     class Trap(val x: Float, val y: Float)
     class Barr(val w: Wall) { var t = 45f }
-    class Car(var x: Float, var y: Float) { var a = 0f; var v = 0f; var hp = 300f }
+    class Car(var x: Float, var y: Float) { var a = 0f; var v = 0f; var hp = 300f; var tk = 0f }
     class ChatL(val s: String, val ts: Long)
 
     var coins = 0
@@ -2328,7 +2370,7 @@ for (l in loot) {
     private val trapL = ArrayList<Trap>()
     private val barrL = ArrayList<Barr>()
     private val cars = ArrayList<Car>()
-    private var driving: Car? = null
+    var driving: Car? = null // m12o
     private var shopOpen = false
     private var chatOpen = false
     private val shopR = Array(7) { RectF() }
@@ -2413,7 +2455,7 @@ for (l in loot) {
         mProg += amt
         if (mProg >= mTarget) {
             val r = 25 + mCount * 5
-            missXp += r * 2
+            missXp += r * 2; missTot += r * 2
             mCount++
             saveProg()
             say("Миссия выполнена! +" + (r * 2) + " опыта")
@@ -2477,7 +2519,7 @@ for (l in loot) {
     // ---------- машина ----------
 
     private fun nearCar(): Car? {
-        for (cr in cars) if (hypot(cr.x - player.x, cr.y - player.y) < 70f) return cr
+        for (cr in cars) if (hypot(cr.x - player.x, cr.y - player.y) < 70f && !carTaken(cr)) return cr
         return null
     }
 
@@ -2518,6 +2560,7 @@ for (l in loot) {
             for (z in zombies) if (!z.dead && hypot(z.x - cr.x, z.y - cr.y) < 26f + z.r) { damageQuiet(z, 120f, true); cr.hp -= 6f }
             for (g in dogs) if (!g.dead && hypot(g.x - cr.x, g.y - cr.y) < 26f + g.r) { damageQuiet(g, 120f, true); cr.hp -= 4f }
         }
+        carTrack(cr, abs(cr.v) * dt) // m13y
         p.x = cr.x; p.y = cr.y; p.angle = cr.a
         p.moving = false
         if (cr.hp <= 0f) {
@@ -2605,17 +2648,16 @@ for (l in loot) {
         val h = height.toFloat()
         val client = sync?.client == true
         if (sync != null && hypot(x - 250f * d, y - (h - 70f * d)) < 24f * d) { chatOpen = true; return true }
-        if (client) return false
-        if (hypot(x - sb2X(), y - sbY(3)) < 21f * d) { placeTrap(); return true }
-        if (hypot(x - sb2X(), y - sbY(4)) < 21f * d) { placeBarr(); return true }
-        if ((driving != null || nearCar() != null) && hypot(x - 346f * d, y - (h - 70f * d)) < 24f * d) { toggleCar(); return true }
+        if (hypot(x - sb2X(), y - sbY(3)) < 21f * d) { if (client) sync?.sendCmd(3) else placeTrap(); return true }
+        if (hypot(x - sb2X(), y - sbY(4)) < 21f * d) { if (client) sync?.sendCmd(4) else placeBarr(); return true }
+        if ((driving != null || nearCar() != null) && hypot(x - 346f * d, y - (h - 70f * d)) < 24f * d) { if (client) sync?.sendCmd(5) else toggleCar(); return true }
         return false
     }
 
     private fun drawStage4Hud(c: Canvas, w: Float, h: Float) {
         xpTick(c, w, h)
         val client = sync?.client == true
-        if (!client) {
+        if (true) { // m12q
             val lab = arrayOf("ЛОВ " + traps, "БАР " + barrs)
             for (i in 0..1) {
                 c.drawCircle(sb2X(), sbY(i + 3), 17f * d, fillP(0x88455A64.toInt()))
@@ -2649,7 +2691,7 @@ for (l in loot) {
                 if (sx > 30f && sx < w - 30f && sy > 30f && sy < h - 30f) continue
                 val ex = sx.coerceIn(30f * d, w - 30f * d)
                 val ey = sy.coerceIn(30f * d, h - 30f * d)
-                c.drawCircle(ex, ey, 9f * d, fillP(if (b.dead) 0xCCE53935.toInt() else 0xCC40C4FF.toInt()))
+                c.drawCircle(ex, ey, 9f * d, fillP(if (b.dead) 0xCCE53935.toInt() else if (gmode == 3 && b.team != myTeam) 0xCCFF1744.toInt() else 0xCC40C4FF.toInt()))
                 txt(c, b.name.take(6), ex, ey - 12f * d, 11f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
             }
         }
@@ -2687,6 +2729,7 @@ for (l in loot) {
     }
 
     private fun drawFx2(c: Canvas) {
+        drawCap(c) // m14l
         for (t in trapL) {
             c.drawCircle(t.x, t.y, 9f, fillP(0xFF616161.toInt()))
             c.drawCircle(t.x, t.y, 9f, strokeP(0xFFCFD8DC.toInt(), 2f))
@@ -2757,7 +2800,7 @@ for (l in loot) {
 
     private fun pendingXp(): Int {
         val el = max(0f, time - xpT0)
-        val g = (player.kills - xpK0) * 2 + (el / 6f).toInt() + (if (gmode == 1) wave * 10 else 0) + missXp
+        val g = (player.kills - xpK0) * 2 + (el / 6f).toInt() + (if (gmode == 1) wave * 10 else 0) + (if (sync?.client == true) max(0, hostMiss - missBase) else missXp)
         return max(0, g)
     }
 
@@ -2766,12 +2809,14 @@ for (l in loot) {
         xpAwarded = true
         var g = pendingXp()
         if (gmode == 2 && pvpOver && !player.dead) g += 100
+        if (gmode == 3 && pvpOver && capWin == myTeam) g += 100 // m14j
         xpBefore = medalXp
         gainXp = g
         medalXp = min(Medal.MAXXP, medalXp + g)
         xpT0 = time
         xpK0 = player.kills
         missXp = 0
+        missBase = hostMiss
         awardAt = System.currentTimeMillis()
         saveProg()
         if (g > 0) say("+" + g + " опыта")
@@ -2797,6 +2842,574 @@ for (l in loot) {
         c.drawRoundRect(r, 5f * d, 5f * d, fillP(0xFFFFC107.toInt()))
         if (lv < Medal.MAXL) txt(c, Medal.into(shown).toString() + " / " + Medal.need(lv), bx, cy + 30f * d, 11f * d, 0xFFB0BEC5.toInt(), Paint.Align.LEFT)
         if (t >= 1f && Medal.level(medalXp) > Medal.level(xpBefore)) txt(c, "НОВЫЙ РАНГ!", bx + 260f * d, cy - 8f * d, 14f * d, 0xFF69F0AE.toInt(), Paint.Align.RIGHT)
+    }
+    // ===== гости: всё как у хозяина (m12) =====
+    var hostMiss = 0
+    var missBase = 0
+    var missTot = 0
+    private var pendCar = -1
+    var cap = 0f
+    var score0 = 0f
+    var score1 = 0f
+    var capOwner = -1
+    var capWin = -1
+    var myTeam = 0
+
+    fun wantSprint(): Boolean = sprintId != -1 && !tired
+
+    private fun carTaken(cr: Car): Boolean {
+        for (b in bots) if (b.car === cr) return true
+        return false
+    }
+
+    private fun throwFromBot(b: Bot, kind: Int) {
+        if (b.dead || b.car != null || b.throwCd > 0f) return
+        if (kind == 0 && b.gren <= 0) { b.say("Нет гранат"); return }
+        if (kind == 1 && b.molo <= 0) { b.say("Нет коктейлей"); return }
+        if (kind == 0) b.gren-- else b.molo--
+        b.throwCd = 0.6f
+        val a = b.angle
+        thrown.add(Thrown(b.x + cos(a) * 18f, b.y + sin(a) * 18f, cos(a) * 620f, sin(a) * 620f, kind))
+        sndAt(Snd.SWING, b.x, b.y)
+    }
+
+    private fun trapBot(b: Bot) {
+        if (b.dead || b.car != null) return
+        if (b.traps <= 0) { b.say("Нет ловушек"); return }
+        b.traps--
+        trapL.add(Trap(b.x + cos(b.angle) * 30f, b.y + sin(b.angle) * 30f))
+        b.say("Ловушка поставлена")
+    }
+
+    private fun barrBot(b: Bot) {
+        if (b.dead || b.car != null) return
+        if (b.barrs <= 0) { b.say("Нет баррикад"); return }
+        val a = b.angle
+        val cx = b.x + cos(a) * 50f
+        val cy = b.y + sin(a) * 50f
+        if (blocked(cx, cy, 40f)) { b.say("Здесь нельзя"); return }
+        val horiz = abs(sin(a)) > abs(cos(a))
+        val ww = if (horiz) 70f else 18f
+        val hh = if (horiz) 18f else 70f
+        val wl = Wall(cx - ww / 2f, cy - hh / 2f, ww, hh)
+        addWall(wl)
+        barrL.add(Barr(wl))
+        b.barrs--
+    }
+
+    private fun toggleCarBot(b: Bot) {
+        if (b.dead) return
+        val cr = b.car
+        if (cr != null) {
+            b.car = null
+            b.x = cr.x + cos(cr.a + 1.57f) * 36f
+            b.y = cr.y + sin(cr.a + 1.57f) * 36f
+            if (blocked(b.x, b.y, b.r)) { b.x = cr.x; b.y = cr.y }
+            cr.v = 0f
+            return
+        }
+        for (c0 in cars) {
+            if (hypot(c0.x - b.x, c0.y - b.y) < 70f && c0 !== driving && !carTaken(c0)) {
+                b.car = c0
+                b.say("Ты в машине!")
+                return
+            }
+        }
+    }
+
+    private fun driveBot(b: Bot, pr: NetPeer, dt: Float) {
+        val cr = b.car ?: return
+        val mag = hypot(pr.jx, pr.jy)
+        if (mag > 0.2f) {
+            val ta = atan2(pr.jy, pr.jx)
+            val k = (abs(cr.v) / 200f).coerceIn(0.35f, 1f)
+            val da = normAng(ta - cr.a)
+            cr.a += da.coerceIn(-2.6f * dt * k, 2.6f * dt * k)
+            cr.v = min(430f, cr.v + 340f * dt * mag)
+        } else cr.v -= cr.v * min(1f, 1.6f * dt)
+        val nx = cr.x + cos(cr.a) * cr.v * dt
+        val ny = cr.y + sin(cr.a) * cr.v * dt
+        if (blocked(nx, cr.y, 18f)) { cr.hp -= abs(cr.v) * 0.05f; cr.v *= -0.2f } else cr.x = nx
+        if (blocked(cr.x, ny, 18f)) { cr.hp -= abs(cr.v) * 0.05f; cr.v *= -0.2f } else cr.y = ny
+        cr.x = cr.x.coerceIn(20f, WORLD - 20f)
+        cr.y = cr.y.coerceIn(20f, WORLD - 20f)
+        if (abs(cr.v) > 120f) {
+            noiseT = 0.5f
+            for (z in zombies) if (!z.dead && hypot(z.x - cr.x, z.y - cr.y) < 26f + z.r) { damageQuiet(z, 120f, true); cr.hp -= 6f }
+            for (g in dogs) if (!g.dead && hypot(g.x - cr.x, g.y - cr.y) < 26f + g.r) { damageQuiet(g, 120f, true); cr.hp -= 4f }
+        }
+        carTrack(cr, abs(cr.v) * dt) // m13z
+        b.x = cr.x; b.y = cr.y; b.angle = cr.a
+        b.moving = false
+        if (cr.hp <= 0f) {
+            b.car = null
+            cars.remove(cr)
+            explodeAt(cr.x, cr.y, 140f, 90f, true, true, false)
+            hurtAlly(b, 40f, 0f)
+        }
+    }
+
+    private fun botCmds(b: Bot, pr: NetPeer) {
+        while (true) {
+            val q = pr.cmds.poll() ?: break
+            if (q == 1) throwFromBot(b, 0)
+            else if (q == 2) throwFromBot(b, 1)
+            else if (q == 3) trapBot(b)
+            else if (q == 4) barrBot(b)
+            else if (q == 5) toggleCarBot(b)
+            else if (q == 6) startReloadB(b) // m13r
+        }
+    }
+
+    private fun botEnv(b: Bot, pr: NetPeer, dt: Float, mv: Boolean): Float {
+        b.throwCd -= dt
+        val want = pr.sprint && mv && !b.tired
+        b.sprint = want
+        if (want) {
+            b.stam -= 28f * dt
+            if (b.stam <= 0f) { b.stam = 0f; b.tired = true; b.sprint = false }
+        } else {
+            b.stam = min(100f, b.stam + (if (mv) 12f else 24f) * dt)
+            if (b.tired && b.stam >= 30f) b.tired = false
+        }
+        return (if (b.sprint) 1.5f else 1f) * (if (b.tired) 0.8f else 1f)
+    }
+
+    // --- пакет: личное состояние гостя ---
+    fun netPeerOut(o: java.io.DataOutputStream, b: Bot?) {
+        if (b == null) {
+            o.writeByte(100); o.writeByte(0); o.writeByte(0); o.writeByte(0); o.writeByte(0); o.writeByte(0); o.writeByte(-1); o.writeByte(0)
+            return
+        }
+        o.writeByte(b.stam.toInt().coerceIn(0, 100))
+        o.writeByte(b.gren.coerceIn(0, 100))
+        o.writeByte(b.molo.coerceIn(0, 100))
+        o.writeByte(b.traps.coerceIn(0, 100))
+        o.writeByte(b.barrs.coerceIn(0, 100))
+        o.writeByte((if (b.tired) 1 else 0) or (if (b.sprint) 2 else 0))
+        var ci = -1
+        for (q in 0 until cars.size) if (cars[q] === b.car) ci = q
+        o.writeByte(ci)
+        o.writeByte(b.team)
+    }
+
+    fun netPeerIn(i: java.io.DataInputStream) {
+        stam = i.readByte().toFloat()
+        gren = i.readByte().toInt()
+        molo = i.readByte().toInt()
+        traps = i.readByte().toInt()
+        barrs = i.readByte().toInt()
+        val fl = i.readByte().toInt()
+        tired = (fl and 1) != 0
+        sprinting = (fl and 2) != 0
+        pendCar = i.readByte().toInt()
+        myTeam = i.readByte().toInt()
+    }
+
+    // --- пакет: мир (время суток, погода, гранаты, ловушки, машины, миссия) ---
+    fun netWorldOut(o: java.io.DataOutputStream) {
+        o.writeFloat(dayT)
+        o.writeByte(weather)
+        o.writeByte(mType)
+        o.writeShort(mTarget.coerceIn(0, 30000))
+        o.writeShort(mProg.toInt().coerceIn(0, 30000))
+        o.writeShort(missTot.coerceIn(0, 30000))
+        o.writeFloat(cap)
+        o.writeShort(score0.toInt().coerceIn(0, 30000))
+        o.writeShort(score1.toInt().coerceIn(0, 30000))
+        o.writeByte(capOwner)
+        o.writeByte(capWin)
+        var n = min(thrown.size, 40)
+        o.writeByte(n)
+        for (q in 0 until n) { val t = thrown[q]; o.writeFloat(t.x); o.writeFloat(t.y); o.writeByte(t.kind) }
+        n = min(fires.size, 20)
+        o.writeByte(n)
+        for (q in 0 until n) { val f = fires[q]; o.writeFloat(f.x); o.writeFloat(f.y); o.writeFloat(f.r); o.writeFloat(f.t) }
+        n = min(booms.size, 20)
+        o.writeByte(n)
+        for (q in 0 until n) { val b = booms[q]; o.writeFloat(b[0]); o.writeFloat(b[1]); o.writeFloat(b[2]); o.writeFloat(b[3]) }
+        n = min(trapL.size, 60)
+        o.writeByte(n)
+        for (q in 0 until n) { o.writeFloat(trapL[q].x); o.writeFloat(trapL[q].y) }
+        n = min(barrL.size, 40)
+        o.writeByte(n)
+        for (q in 0 until n) { val w = barrL[q].w; o.writeFloat(w.x); o.writeFloat(w.y); o.writeFloat(w.w); o.writeFloat(w.h) }
+        n = min(cars.size, 20)
+        o.writeByte(n)
+        for (q in 0 until n) { o.writeFloat(cars[q].x); o.writeFloat(cars[q].y); o.writeFloat(cars[q].a) }
+    }
+
+    fun netWorldIn(i: java.io.DataInputStream) {
+        dayT = i.readFloat()
+        val wt = i.readByte().toInt()
+        if (wt != weather) {
+            weather = wt
+            say(if (wt == 0) "Погода прояснилась" else if (wt == 1) "Начался дождь" else "Опустился туман")
+        }
+        mType = i.readByte().toInt()
+        mTarget = i.readShort().toInt()
+        mProg = i.readShort().toFloat()
+        hostMiss = i.readShort().toInt()
+        cap = i.readFloat()
+        score0 = i.readShort().toFloat()
+        score1 = i.readShort().toFloat()
+        capOwner = i.readByte().toInt()
+        capWin = i.readByte().toInt()
+        thrown.clear()
+        var n = i.readByte().toInt()
+        for (q in 0 until n) {
+            val x = i.readFloat(); val y = i.readFloat(); val k = i.readByte().toInt()
+            thrown.add(Thrown(x, y, 0f, 0f, k))
+        }
+        fires.clear()
+        n = i.readByte().toInt()
+        for (q in 0 until n) {
+            val x = i.readFloat(); val y = i.readFloat(); val r = i.readFloat(); val t = i.readFloat()
+            val f = Fire(x, y, r)
+            f.t = t
+            fires.add(f)
+        }
+        booms.clear()
+        n = i.readByte().toInt()
+        for (q in 0 until n) {
+            val a = i.readFloat(); val b = i.readFloat(); val c = i.readFloat(); val r = i.readFloat()
+            booms.add(floatArrayOf(a, b, c, r))
+        }
+        trapL.clear()
+        n = i.readByte().toInt()
+        for (q in 0 until n) {
+            val x = i.readFloat(); val y = i.readFloat()
+            trapL.add(Trap(x, y))
+        }
+        val bn = i.readByte().toInt()
+        val arr = FloatArray(bn * 4)
+        for (q in 0 until bn * 4) arr[q] = i.readFloat()
+        var same = bn == barrL.size
+        if (same) for (q in 0 until bn) {
+            val w0 = barrL[q].w
+            if (w0.x != arr[q * 4] || w0.y != arr[q * 4 + 1]) same = false
+        }
+        if (!same) {
+            for (b in barrL) removeWall(b.w)
+            barrL.clear()
+            for (q in 0 until bn) {
+                val wl = Wall(arr[q * 4], arr[q * 4 + 1], arr[q * 4 + 2], arr[q * 4 + 3])
+                addWall(wl)
+                barrL.add(Barr(wl))
+            }
+        }
+        n = i.readByte().toInt()
+        for (q in 0 until n) {
+            val x = i.readFloat(); val y = i.readFloat(); val a = i.readFloat()
+            if (q < cars.size) { carTrack(cars[q], hypot(x - cars[q].x, y - cars[q].y)); cars[q].x = x; cars[q].y = y; cars[q].a = a } // m13za
+            else { val cr = Car(x, y); cr.a = a; cars.add(cr) }
+        }
+        while (cars.size > n) cars.removeAt(cars.size - 1)
+        driving = if (pendCar >= 0 && pendCar < cars.size) cars[pendCar] else null
+        val dr = driving
+        if (dr != null) player.angle = dr.a
+    }
+
+    // ===== перезарядка, следы, гильзы, эффект ранения (m13) =====
+    class Shell(var x: Float, var y: Float, var vx: Float, var vy: Float, val col: Int) { var t = 0f; var life = 18f; var rot = 0f }
+
+    private val shells = ArrayList<Shell>()
+    private val marks = ArrayList<FloatArray>()
+    private var shakeT = 0f
+    private var hurtP: Paint? = null
+    private var hurtW = 0
+    private var prevFl = 0f
+    private val rlPath = Path()
+    private var rlX = 0f
+    private var rlY = 0f
+    private var rlR = 0f
+
+    fun magOf(e: Ent): Int = (if (e is Player) e.mags[e.weapon] else if (e is Bot) e.mags[e.weapon] else 0).coerceIn(0, 120)
+
+    fun reloadOf(e: Ent): Int = ((if (e is Player) e.reload else if (e is Bot) e.reload else 0f) * 20f).toInt().coerceIn(0, 127)
+
+    private fun startReloadP(p: Player) {
+        val w = p.weapon
+        if (p.dead || !W.isGun(w) || p.reload > 0f || p.mags[w] >= W.mag[w] || p.ammo <= 0) return
+        p.reload = W.rel[w]
+        sndAt(Snd.SWING, p.x, p.y)
+    }
+
+    private fun finishReloadP(p: Player) {
+        val w = p.weapon
+        val take = min(W.mag[w] - p.mags[w], p.ammo)
+        if (take > 0) { p.mags[w] += take; p.ammo -= take }
+    }
+
+    private fun startReloadB(b: Bot) {
+        val w = b.weapon
+        if (b.dead || !W.isGun(w) || b.reload > 0f || b.mags[w] >= W.mag[w] || b.ammo <= 0) return
+        b.reload = W.rel[w]
+        sndAt(Snd.SWING, b.x, b.y)
+    }
+
+    private fun botReload(b: Bot, dt: Float) {
+        if (b.reload > 0f) {
+            b.reload -= dt
+            if (b.reload <= 0f) {
+                b.reload = 0f
+                val w = b.weapon
+                val take = min(W.mag[w] - b.mags[w], b.ammo)
+                if (take > 0) { b.mags[w] += take; b.ammo -= take }
+            }
+        }
+    }
+
+    private fun reloadDown(x: Float, y: Float): Boolean {
+        if (gameOver || !W.isGun(player.weapon)) return false
+        if (hypot(x - rlX, y - rlY) > rlR * 1.4f) return false
+        if (sync?.client == true) sync?.sendCmd(6) else startReloadP(player)
+        return true
+    }
+
+    private fun arrowHead(c: Canvas, x: Float, y: Float, ir: Float, deg: Float) {
+        val a = Math.toRadians(deg.toDouble()).toFloat()
+        val px = x + cos(a) * ir
+        val py = y + sin(a) * ir
+        val tx = -sin(a)
+        val ty = cos(a)
+        val nx = cos(a)
+        val ny = sin(a)
+        val s = 4.2f * d
+        rlPath.reset()
+        rlPath.moveTo(px + tx * s * 1.4f, py + ty * s * 1.4f)
+        rlPath.lineTo(px - nx * s, py - ny * s)
+        rlPath.lineTo(px + nx * s, py + ny * s)
+        rlPath.close()
+        c.drawPath(rlPath, fillP(0xFFFFFFFF.toInt()))
+    }
+
+    private fun drawReloadBtn(c: Canvas) {
+        val p0 = player
+        if (!W.isGun(p0.weapon) || gameOver) { rlR = 0f; return }
+        val r = swR * 0.72f
+        val x = swX
+        val y = swY - swR * 2f - 8f * d
+        rlX = x; rlY = y; rlR = r
+        val rl = p0.reload > 0f
+        c.drawCircle(x, y, r, fillP(if (rl) 0xAA2E7D32.toInt() else 0x88455A64.toInt()))
+        c.drawCircle(x, y, r, strokeP(0xAAFFFFFF.toInt(), 2f * d))
+        val ir = r * 0.5f
+        rf.set(x - ir, y - ir, x + ir, y + ir)
+        c.drawArc(rf, 20f, 140f, false, strokeP(0xFFFFFFFF.toInt(), 2.6f * d))
+        c.drawArc(rf, 200f, 140f, false, strokeP(0xFFFFFFFF.toInt(), 2.6f * d))
+        arrowHead(c, x, y, ir, 160f)
+        arrowHead(c, x, y, ir, 340f)
+        if (rl) {
+            val k = (1f - p0.reload / W.rel[p0.weapon]).coerceIn(0f, 1f)
+            rf.set(x - r - 3f * d, y - r - 3f * d, x + r + 3f * d, y + r + 3f * d)
+            c.drawArc(rf, -90f, 360f * k, false, strokeP(0xFF69F0AE.toInt(), 3f * d))
+        }
+        txt(c, p0.mags[p0.weapon].toString() + "/" + p0.ammo, x, y + r + 14f * d, 12f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+    }
+
+    private fun addStain(x: Float, y: Float, size: Float, life: Float) {
+        if (marks.size > 260) marks.removeAt(0)
+        marks.add(floatArrayOf(x, y, 0f, life, 1f, size))
+    }
+
+    private fun carTrack(cr: Car, dist: Float) {
+        cr.tk += dist
+        if (cr.tk < 13f) return
+        cr.tk = 0f
+        val ca = cos(cr.a)
+        val sa = sin(cr.a)
+        for (sg in -1..1 step 2) {
+            val ox = -14f * ca - sg * 11f * (-sa)
+            val oy = -14f * sa - sg * 11f * ca
+            if (marks.size > 260) marks.removeAt(0)
+            marks.add(floatArrayOf(cr.x + ox, cr.y + oy, cr.a, 9f, 0f, 0f))
+        }
+    }
+
+    private fun addShell(x: Float, y: Float, ang: Float, w: Int) {
+        if (!W.isGun(w) || shells.size > 90) return
+        val a = ang + 1.57f + (rnd.nextFloat() - 0.5f) * 0.9f
+        val sp = 70f + rnd.nextFloat() * 60f
+        shells.add(Shell(x + cos(ang) * 8f, y + sin(ang) * 8f, cos(a) * sp, sin(a) * sp, if (w == 6) 0xFFC62828.toInt() else 0xFFFFC107.toInt()))
+    }
+
+    private fun updateFx3(dt: Float) {
+        if (shakeT > 0f) shakeT -= dt
+        val mi = marks.iterator()
+        while (mi.hasNext()) {
+            val m = mi.next()
+            m[3] -= dt
+            if (m[3] <= 0f) mi.remove()
+        }
+        val si = shells.iterator()
+        while (si.hasNext()) {
+            val s = si.next()
+            s.t += dt
+            s.life -= dt
+            if (s.t < 0.4f) {
+                s.x += s.vx * dt; s.y += s.vy * dt
+                s.vx *= 0.9f; s.vy *= 0.9f
+                s.rot += dt * 18f
+            }
+            if (s.life <= 0f) si.remove()
+        }
+    }
+
+    private fun guestFx() {
+        val fl = player.flash
+        if (fl > 0f && prevFl <= 0f) addShell(player.x, player.y, player.angle, player.weapon)
+        prevFl = fl
+        for (z in zombies) {
+            if (z.dead && z.aux == 0f) { z.aux = 1f; addStain(z.x, z.y, 9f + rnd.nextFloat() * 7f, 30f) }
+        }
+    }
+
+    private fun drawMarks(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float) {
+        for (m in marks) {
+            if (m[0] < x0 || m[0] > x1 || m[1] < y0 || m[1] > y1) continue
+            val al = min(1f, m[3] / 4f)
+            if (m[4] == 0f) {
+                c.save()
+                c.translate(m[0], m[1])
+                c.rotate(Math.toDegrees(m[2].toDouble()).toFloat())
+                c.drawRect(-5f, -1.7f, 5f, 1.7f, fillP(Color.argb((80 * al).toInt(), 0, 0, 0)))
+                c.restore()
+            } else {
+                c.drawCircle(m[0], m[1], m[5], fillP(Color.argb((140 * al).toInt(), 105, 12, 12)))
+                c.drawCircle(m[0] + m[5] * 0.4f, m[1] - m[5] * 0.3f, m[5] * 0.5f, fillP(Color.argb((110 * al).toInt(), 80, 8, 8)))
+            }
+        }
+        for (s in shells) {
+            if (s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1) continue
+            c.save()
+            c.translate(s.x, s.y)
+            c.rotate(Math.toDegrees(s.rot.toDouble()).toFloat())
+            c.drawRect(-2.4f, -1.2f, 2.4f, 1.2f, fillP(s.col))
+            c.restore()
+        }
+    }
+
+    private fun drawHurt(c: Canvas, w: Float, h: Float) {
+        var k = if (hitFlash > 0f) min(1f, hitFlash / 0.3f) else 0f
+        if (!player.dead && player.hp < 30f) k = max(k, 0.3f + 0.2f * sin(time * 6f))
+        if (k <= 0.01f) return
+        if (hurtP == null || hurtW != width) {
+            hurtW = width
+            hurtP = Paint().apply {
+                shader = RadialGradient(
+                    w / 2f, h / 2f, max(w, h) * 0.7f,
+                    intArrayOf(0x00D50000, 0x00D50000, 0xDDB71C1C.toInt()), floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP
+                )
+            }
+        }
+        val hp = hurtP ?: return
+        hp.alpha = (255f * min(1f, k)).toInt()
+        c.drawRect(0f, 0f, w, h, hp)
+        if (hitFlash > 0.2f) c.drawColor(Color.argb(((hitFlash - 0.2f) * 160f).toInt(), 255, 0, 0))
+    }
+
+    // ===== режим «Захват базы» (m14) =====
+    private fun teamOf(e: Ent): Int = if (e is Bot) e.team else 0
+
+    private fun sameTeam(a: Ent?, b: Ent): Boolean = gmode == 3 && a != null && a !is Zombie && teamOf(a) == teamOf(b)
+
+    private fun teamCol(t: Int): Int = if (t == 0) 0xFFE53935.toInt() else 0xFF1E88E5.toInt()
+
+    fun baseSpot(t: Int): PointF {
+        val ax = if (t == 0) 450f else WORLD - 450f
+        val ay = if (t == 0) 450f else WORLD - 450f
+        for (i in 0 until 60) {
+            val x = ax + (rnd.nextFloat() - 0.5f) * 300f
+            val y = ay + (rnd.nextFloat() - 0.5f) * 300f
+            if (!blocked(x, y, 16f)) return PointF(x, y)
+        }
+        return PointF(ax, ay)
+    }
+
+    fun placeAtBase(b: Bot) {
+        if (gmode != 3) return
+        val p = baseSpot(b.team)
+        b.x = p.x
+        b.y = p.y
+    }
+
+    private fun capStartMode() {
+        zombies.clear(); dogs.clear(); bots.clear()
+        for (i in 0 until 30) spawnZombie()
+        for (i in 0 until 6) spawnDog()
+        zoneX = WORLD / 2f; zoneY = WORLD / 2f; zoneR = 170f
+        cap = 0f; score0 = 0f; score1 = 0f; capOwner = -1; capWin = -1
+        val sp = baseSpot(0)
+        player.x = sp.x; player.y = sp.y; camX = sp.x; camY = sp.y
+        say("Захват базы: держи точку в центре! Ты в красной команде")
+    }
+
+    private fun capStep(dt: Float) {
+        if (pvpOver) return
+        var n0 = 0
+        var n1 = 0
+        val r2 = (zoneR + 10f) * (zoneR + 10f)
+        if (!player.dead && !outZ(player, r2)) n0++
+        for (b in bots) {
+            if (b.dead || b.peer == null || outZ(b, r2)) continue
+            if (b.team == 0) n0++ else n1++
+        }
+        val diff = n0 - n1
+        if (diff != 0) {
+            val k = if (diff > 0) 1f else -1f
+            cap = (cap + k * min(2, abs(diff)) * 14f * dt).coerceIn(-100f, 100f)
+        }
+        if (cap >= 99.9f) capOwner = 0
+        else if (cap <= -99.9f) capOwner = 1
+        else if (abs(cap) < 20f) capOwner = -1
+        if (capOwner == 0) score0 += dt else if (capOwner == 1) score1 += dt
+        if (score0 >= 90f) { pvpOver = true; capWin = 0 }
+        else if (score1 >= 90f) { pvpOver = true; capWin = 1 }
+    }
+
+    private fun drawCap(c: Canvas) {
+        if (gmode != 3) return
+        val col = if (capOwner >= 0) teamCol(capOwner) else 0xFFBDBDBD.toInt()
+        c.drawCircle(zoneX, zoneY, zoneR, fillP((col and 0x00FFFFFF) or 0x33000000))
+        c.drawCircle(zoneX, zoneY, zoneR, strokeP(col, 4f))
+        if (abs(cap) > 1f) {
+            rf.set(zoneX - zoneR + 10f, zoneY - zoneR + 10f, zoneX + zoneR - 10f, zoneY + zoneR - 10f)
+            c.drawArc(rf, -90f, 360f * abs(cap) / 100f, false, strokeP(teamCol(if (cap > 0f) 0 else 1), 9f))
+        }
+        for (t in 0..1) {
+            val bx = if (t == 0) 450f else WORLD - 450f
+            c.drawCircle(bx, bx, 90f, fillP((teamCol(t) and 0x00FFFFFF) or 0x22000000))
+            c.drawCircle(bx, bx, 90f, strokeP(teamCol(t), 3f))
+            txt(c, if (t == 0) "БАЗА КРАСНЫХ" else "БАЗА СИНИХ", bx, bx + 5f, 16f, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        }
+    }
+
+    private fun drawCapHud(c: Canvas, w: Float, h: Float) {
+        if (gmode != 3) return
+        txt(c, "КРАСНЫЕ " + score0.toInt() + " / 90      СИНИЕ " + score1.toInt() + " / 90", w / 2f, 28f * d, 17f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        val bw = min(w * 0.34f, 260f * d)
+        val l = w / 2f - bw / 2f
+        val t = 36f * d
+        c.drawRoundRect(RectF(l, t, l + bw, t + 9f * d), 4f * d, 4f * d, fillP(0x88000000.toInt()))
+        val mid = l + bw / 2f
+        val ex = mid + bw / 2f * (cap / 100f)
+        c.drawRoundRect(RectF(min(mid, ex), t, max(mid, ex), t + 9f * d), 3f * d, 3f * d, fillP(teamCol(if (cap >= 0f) 0 else 1)))
+        c.drawLine(mid, t - 2f * d, mid, t + 11f * d, strokeP(0xFFFFFFFF.toInt(), 1.5f * d))
+        val who = if (capOwner == 0) "Точка у красных" else if (capOwner == 1) "Точка у синих" else "Точка ничья"
+        txt(c, who + "   (ты в " + (if (myTeam == 0) "красной" else "синей") + " команде)", w / 2f, 62f * d, 12f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
+        if (pvpOver) {
+            c.drawColor(0x99000000.toInt())
+            val win = capWin == myTeam
+            txt(c, if (capWin == 0) "ПОБЕДА КРАСНЫХ" else "ПОБЕДА СИНИХ", w / 2f, h * 0.38f, 40f * d, teamCol(max(0, capWin)), Paint.Align.CENTER)
+            txt(c, if (win) "Твоя команда победила!" else "Твоя команда проиграла", w / 2f, h * 0.38f + 32f * d, 18f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+            val bw2 = min(w * 0.3f, 200f * d)
+            val bh = 46f * d
+            retryR.set(w / 2f - bw2 - 8f * d, h * 0.55f, w / 2f - 8f * d, h * 0.55f + bh)
+            menuR.set(w / 2f + 8f * d, h * 0.55f, w / 2f + bw2 + 8f * d, h * 0.55f + bh)
+            if (sync?.client != true) uiBtn(c, retryR, "ЗАНОВО", false) else retryR.setEmpty()
+            uiBtn(c, menuR, "ВЫЙТИ", false)
+        }
     }
 
     init {
