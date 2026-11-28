@@ -34,7 +34,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private val ctlBtn = RectF()
     private var pendKind = 0
     private val nameBtn = RectF()
-    private val stBtn = Array(3) { RectF() }
+    private val stBtn = Array(4) { RectF() } // m16p
     private val mm = Array(4) { RectF() } // m14u
     private var vig: Paint? = null
     private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ", "ОНЛАЙН") // m15o
@@ -226,7 +226,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         }
         if (screen == 1) {
             if (ctlBtn.contains(x, y)) return 13
-            for (i in 0..2) if (stBtn[i].contains(x, y)) return 40 + i
+            for (i in 0..3) if (stBtn[i].contains(x, y)) return 40 + i // m16q
             return if (backBtn.contains(x, y)) 10 else -1
         }
         for (i in 0..3) if (btn[i].contains(x, y)) return i // m15i
@@ -255,6 +255,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         else if (id == 40) Cfg.nextVol(context)
         else if (id == 41) Cfg.nextAim(context)
         else if (id == 42) Cfg.nextFps(context)
+        else if (id == 43) Cfg.nextKb(context) // m16r
         else if (id == 2) screen = 1
         else if (id == 50) skinPage = 1 - skinPage
         else if (id in 4..7) { skin = skinPage * 4 + (id - 4); save() }
@@ -365,14 +366,14 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
         txt(c, "НАСТРОЙКИ", w / 2f, h * 0.15f, 34f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
         val bw = min(w * 0.55f, 420f * d)
-        val bh = min(52f * d, h * 0.11f)
-        val g = min(9f * d, h * 0.02f)
+        val bh = min(52f * d, h * 0.095f) // m16s
+        val g = min(9f * d, h * 0.015f)
         var y = h * 0.22f
         ctlBtn.set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
         drawButton(c, ctlBtn, "КАСТОМИЗАЦИЯ УПРАВЛЕНИЯ", "", pressed == 13)
         y += bh + g
-        val lab = arrayOf(Cfg.volLabel(), Cfg.aimLabel(), Cfg.fpsLabel())
-        for (i in 0..2) {
+        val lab = arrayOf(Cfg.volLabel(), Cfg.aimLabel(), Cfg.fpsLabel(), Cfg.kbLabel()) // m16t
+        for (i in 0..3) {
             stBtn[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
             drawButton(c, stBtn[i], lab[i], "", pressed == 40 + i)
             y += bh + g

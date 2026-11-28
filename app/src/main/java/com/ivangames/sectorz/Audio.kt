@@ -14,6 +14,7 @@ object Cfg {
     var vol = 3
     var aimI = 2
     var fps = false
+    var kb = false // m16z1
     val vols = floatArrayOf(0f, 0.33f, 0.66f, 1f)
     val aims = floatArrayOf(0.6f, 0.8f, 1f, 1.3f, 1.7f)
     val aim: Float get() = aims[aimI]
@@ -23,11 +24,12 @@ object Cfg {
         vol = p.getInt("vol", 3).coerceIn(0, 3)
         aimI = p.getInt("aim", 2).coerceIn(0, 4)
         fps = p.getBoolean("fps", false)
+        kb = p.getBoolean("kb", false) // m16z2
     }
 
     private fun save(c: Context) {
         c.getSharedPreferences("sectorz", Context.MODE_PRIVATE).edit()
-            .putInt("vol", vol).putInt("aim", aimI).putBoolean("fps", fps).apply()
+            .putInt("vol", vol).putInt("aim", aimI).putBoolean("fps", fps).putBoolean("kb", kb).apply() // m16z3
     }
 
     fun nextVol(c: Context) { vol = (vol + 1) % 4; save(c); Snd.refresh() }
@@ -35,6 +37,8 @@ object Cfg {
     fun nextFps(c: Context) { fps = !fps; save(c) }
     fun volLabel(): String = "ЗВУК: " + (vols[vol] * 100f).roundToInt() + "%"
     fun aimLabel(): String = "ЧУВСТВ. ПРИЦЕЛА: " + (aims[aimI] * 100f).roundToInt() + "%"
+    fun nextKb(c: Context) { kb = !kb; save(c) } // m16z4
+    fun kbLabel(): String = "УПРАВЛЕНИЕ: " + (if (kb) "КЛАВ.+МЫШЬ" else "ТЕЛЕФОН")
     fun fpsLabel(): String = "ПОКАЗ FPS: " + (if (fps) "ВКЛ" else "ВЫКЛ")
 }
 

@@ -2,6 +2,7 @@ package com.ivangames.sectorz
 
 import android.content.Context
 import android.graphics.*
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.*
@@ -622,6 +623,7 @@ val by = e.y
     }
 
     private fun updatePlayer(dt: Float) {
+        kmStep() // m16b
         val p = player
         p.hurtT = max(0f, p.hurtT - dt)
         p.cool -= dt
@@ -639,7 +641,7 @@ val by = e.y
             p.walk += dt * (6f + sp * 0.06f)
         }
         val atk = atkId != -1
-        val aiming = atk && hypot(atkDx, atkDy) > 0.3f
+        val aiming = (atk || Cfg.kb) && hypot(atkDx, atkDy) > 0.3f // m16c
         if (aiming) p.angle = atan2(atkDy, atkDx)
         else if (p.moving) turn(p, moveAng, 14f, dt)
         if (atk && p.cool <= 0f && p.atkT < 0f) {
@@ -1057,7 +1059,7 @@ for (l in loot) {
         val inf = sync?.info()
         if (!inf.isNullOrEmpty()) txt(c, inf, w / 2f, h - 14f * d, 13f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
 
-        if (joyId != -1) {
+        if (Cfg.kb) { } else if (joyId != -1) { // m16f
             c.drawCircle(joyBX, joyBY, joyR, fillP(0x22FFFFFF))
             c.drawCircle(joyBX, joyBY, joyR, strokeP(0x66FFFFFF, 2f * d))
             c.drawCircle(joyCX, joyCY, joyR * 0.43f, fillP(0x88FFFFFF.toInt()))
@@ -1065,9 +1067,15 @@ for (l in loot) {
             c.drawCircle(joyHX, joyHY, joyR * 0.86f, strokeP(0x33FFFFFF, 2f * d))
         }
         val pressed = atkId != -1
+        if (!Cfg.kb) { // m16g
         c.drawCircle(atX, atY, atR, fillP(if (pressed) 0xCCE53935.toInt() else 0x88E53935.toInt()))
         c.drawCircle(atX, atY, atR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
         if (atkId != -1) c.drawCircle(atX + atkDx * atR * 2f / Cfg.aim, atY + atkDy * atR * 2f / Cfg.aim, 16f * d, fillP(0xCCFFFFFF.toInt()))
+        }
+        if (Cfg.kb && mouseHas && uiMode == 0) { // m16j
+            c.drawCircle(mX, mY, 11f * d, strokeP(0xCCFFFFFF.toInt(), 2f * d))
+            c.drawCircle(mX, mY, 2f * d, fillP(0xCCFF5252.toInt()))
+        }
         txt(c, if (W.isGun(p.weapon)) "ОГОНЬ" else "УДАР", atX, atY + 6f * d, 17f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
         c.drawCircle(swX, swY, swR, fillP(0x88455A64.toInt()))
         c.drawCircle(swX, swY, swR, strokeP(0xAAFFFFFF.toInt(), 2f * d))
@@ -1104,6 +1112,7 @@ for (l in loot) {
         if (stageDown(id, x, y)) return
         if (!gameOver) {
             if (hypot(x - swX, y - swY) < swR * 1.4f) { nextWeapon(); return }
+            if (Cfg.kb) { if (atkId == -1) { atkId = id; mX = x; mY = y; mouseHas = true }; return } // m16d
             if (atkId == -1 && hypot(x - atX, y - atY) < atR * 1.5f) { atkId = id; atkDx = 0f; atkDy = 0f; return }
             if (joyId == -1) {
                 if (joyFixed) {
@@ -1160,6 +1169,7 @@ for (l in loot) {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (uiMode != 0) return uiTouch(e)
+        if (Cfg.kb) { mX = e.x; mY = e.y; mouseHas = true } // m16e
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = e.actionIndex
@@ -1206,6 +1216,7 @@ for (l in loot) {
     fun pause() {
         running = false
         removeCallbacks(this)
+        kmReset() // m16i
         joyId = -1; atkId = -1; sprintId = -1; joyDx = 0f; joyDy = 0f
     }
 
@@ -1246,6 +1257,7 @@ for (l in loot) {
         time += dt
         if (hitFlash > 0f) hitFlash -= dt
         if (msgT > 0f) msgT -= dt
+        kmStep() // m16h
         val pm = hypot(joyDx, joyDy)
         player.moving = pm > 0.15f && !player.dead && driving == null // m12j
         if (player.moving) {
@@ -1256,7 +1268,7 @@ for (l in loot) {
             player.walk += dt * (6f + msp * 0.06f)
         }
         if (!player.dead) {
-            if (atkId != -1 && hypot(atkDx, atkDy) > 0.3f) player.angle = atan2(atkDy, atkDx)
+            if ((atkId != -1 || Cfg.kb) && hypot(atkDx, atkDy) > 0.3f) player.angle = atan2(atkDy, atkDx)
             else if (player.moving) turn(player, atan2(joyDy, joyDx), 14f, dt)
         }
         updateFx3(dt); guestFx() // m13t2
@@ -1569,12 +1581,12 @@ for (l in loot) {
         if (uiMode == 3) { drawEditor(c, w, h); return }
         c.drawColor(0xBB000000.toInt())
         val bw = min(w * 0.5f, 380f * d)
-        val bh = min(60f * d, h * (if (uiMode == 2) 0.105f else 0.14f))
+        val bh = min(60f * d, h * (if (uiMode == 2) 0.092f else 0.14f)) // m16k
         val gp = min(14f * d, h * 0.03f)
-        val n = if (uiMode == 1) 3 else 5
+        val n = if (uiMode == 1) 3 else 6 // m16l
         var y = h / 2f - (n * bh + (n - 1) * gp) / 2f + 10f * d
         txt(c, if (uiMode == 1) "МЕНЮ" else "НАСТРОЙКИ", w / 2f, y - 18f * d, 30f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
-        val labels = if (uiMode == 1) arrayOf("ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "ВЫЙТИ") else arrayOf("КАСТОМИЗАЦИЯ УПРАВЛЕНИЯ", Cfg.volLabel(), Cfg.aimLabel(), Cfg.fpsLabel(), "НАЗАД")
+        val labels = if (uiMode == 1) arrayOf("ПРОДОЛЖИТЬ", "НАСТРОЙКИ", "ВЫЙТИ") else arrayOf("КАСТОМИЗАЦИЯ УПРАВЛЕНИЯ", Cfg.volLabel(), Cfg.aimLabel(), Cfg.fpsLabel(), Cfg.kbLabel(), "НАЗАД") // m16m
         for (i in 0 until n) {
             uiR[i].set(w / 2f - bw / 2f, y, w / 2f + bw / 2f, y + bh)
             uiBtn(c, uiR[i], labels[i], false)
@@ -1592,7 +1604,8 @@ for (l in loot) {
             else if (uiR[1].contains(x, y)) Cfg.nextVol(context)
             else if (uiR[2].contains(x, y)) Cfg.nextAim(context)
             else if (uiR[3].contains(x, y)) Cfg.nextFps(context)
-            else if (uiR[4].contains(x, y)) uiMode = 1
+            else if (uiR[4].contains(x, y)) { Cfg.nextKb(context); kmReset() } // m16n
+            else if (uiR[5].contains(x, y)) uiMode = 1
         } else if (uiMode == 3) {
             if (uiR[0].contains(x, y)) scaleSel(-0.1f)
             else if (uiR[1].contains(x, y)) scaleSel(0.1f)
@@ -3410,6 +3423,66 @@ for (l in loot) {
             if (sync?.client != true) uiBtn(c, retryR, "ЗАНОВО", false) else retryR.setEmpty()
             uiBtn(c, menuR, "ВЫЙТИ", false)
         }
+    }
+
+    // ===== клавиатура и мышь ===== // m16a
+    private var kbL = false
+    private var kbR = false
+    private var kbU = false
+    private var kbD = false
+    private var kbShift = false
+    private var mX = 0f
+    private var mY = 0f
+    private var mouseHas = false
+
+    fun kmReset() {
+        kbL = false; kbR = false; kbU = false; kbD = false; kbShift = false
+        if (sprintId == 7777) sprintId = -1
+        joyDx = 0f; joyDy = 0f
+    }
+
+    private fun kmStep() {
+        if (!Cfg.kb || uiMode != 0) return
+        var dx = (if (kbR) 1f else 0f) - (if (kbL) 1f else 0f)
+        var dy = (if (kbD) 1f else 0f) - (if (kbU) 1f else 0f)
+        val m = hypot(dx, dy)
+        if (m > 1f) { dx /= m; dy /= m }
+        joyDx = dx
+        joyDy = dy
+        if (kbShift) sprintId = 7777 else if (sprintId == 7777) sprintId = -1
+        if (mouseHas) {
+            val s = height / 700f
+            val px = (player.x - camX) * s + width / 2f
+            val py = (player.y - camY) * s + height / 2f
+            val ax = mX - px
+            val ay = mY - py
+            val am = hypot(ax, ay)
+            if (am > 8f * d) { atkDx = ax / am; atkDy = ay / am }
+        }
+    }
+
+    fun key(code: Int, down: Boolean, first: Boolean): Boolean {
+        if (!Cfg.kb) return false
+        when (code) {
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_A -> kbL = down
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_D -> kbR = down
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_W -> kbU = down
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_S -> kbD = down
+            KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT -> kbShift = down
+            KeyEvent.KEYCODE_Q -> { if (down && first && uiMode == 0 && !gameOver) nextWeapon() }
+            KeyEvent.KEYCODE_ESCAPE -> { if (down && first) back() }
+            else -> return false
+        }
+        return true
+    }
+
+    override fun onGenericMotionEvent(e: MotionEvent): Boolean {
+        if (Cfg.kb) {
+            val a = e.actionMasked
+            if (a == MotionEvent.ACTION_HOVER_MOVE || a == MotionEvent.ACTION_HOVER_ENTER) { mX = e.x; mY = e.y; mouseHas = true; return true }
+            if (a == MotionEvent.ACTION_SCROLL && uiMode == 0 && !gameOver) { nextWeapon(); return true }
+        }
+        return super.onGenericMotionEvent(e)
     }
 
     init {

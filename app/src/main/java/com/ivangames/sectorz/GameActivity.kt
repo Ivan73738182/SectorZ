@@ -2,6 +2,7 @@ package com.ivangames.sectorz
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 
@@ -27,6 +28,14 @@ class GameActivity : Activity() {
     override fun onDestroy() { v.stopNet(); super.onDestroy() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) hideBars() }
     override fun onBackPressed() { if (!v.back()) finish() }
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean { // m16u
+        if (v.key(keyCode, true, event.repeatCount == 0)) return true
+        return super.onKeyDown(keyCode, event)
+    }
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (v.key(keyCode, false, true)) return true
+        return super.onKeyUp(keyCode, event)
+    }
 
     @Suppress("DEPRECATION")
     private fun hideBars() {
