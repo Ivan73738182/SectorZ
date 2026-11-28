@@ -7,9 +7,10 @@ import java.util.concurrent.LinkedBlockingQueue
 import kotlin.math.hypot
 import kotlin.math.min
 
-class NetPeer(val sock: Socket) {
-    val din = DataInputStream(BufferedInputStream(sock.getInputStream()))
-    val dout = DataOutputStream(BufferedOutputStream(sock.getOutputStream()))
+class NetPeer(inS: InputStream, outS: OutputStream, private val closer: () -> Unit) { // m15a
+    constructor(sock: Socket) : this(sock.getInputStream(), sock.getOutputStream(), { try { sock.close() } catch (e: Exception) { } })
+    val din = DataInputStream(BufferedInputStream(inS))
+    val dout = DataOutputStream(BufferedOutputStream(outS))
     private val q = LinkedBlockingQueue<ByteArray>()
     @Volatile var alive = true
     @Volatile var jx = 0f
@@ -52,7 +53,7 @@ class NetPeer(val sock: Socket) {
 
     fun close() {
         alive = false
-        try { sock.close() } catch (e: Exception) { }
+        closer() // m15b
     }
 }
 
@@ -84,7 +85,7 @@ object Discovery {
     }
 }
 
-class NetSync(private val g: GameView, val client: Boolean, private val ip: String, private val skin: Int) {
+class NetSync(private val g: GameView, val client: Boolean, private val ip: String, private val skin: Int, private val online: Boolean = ip == "online") { // m15c
     @Volatile var status = ""
     @Volatile var board: List<String> = emptyList()
     private val peers = CopyOnWriteArrayList<NetPeer>()
@@ -109,6 +110,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         try { server?.close() } catch (e: Exception) { }
         for (p in peers) p.close()
         me?.close()
+        if (online) Online.leave() // m15d
     }
 
     fun cycleWeapon() {
@@ -166,6 +168,7 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
     }
 
     private fun startHost() {
+        if (online) { startOnlineHost(); return } // m15e
         hostIp = localIps()
         val t = Thread {
             try {
@@ -209,6 +212,21 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         }
         bt.isDaemon = true
         bt.start()
+    }
+
+    private fun startOnlineHost() {
+        hostIp = "онлайн"
+        Online.onLeft = { id ->
+            for (p in peers) if (p.id == id) p.alive = false
+        }
+        for (i in 1 until Online.n) {
+            val pipe = Online.hostPipe(i)
+            val pr = NetPeer(pipe.ins, pipe.outs) { pipe.closeAll() }
+            pr.id = i
+            peers.add(pr)
+            pr.startWriter()
+            startPeerReader(pr)
+        }
     }
 
     private fun startPeerReader(pr: NetPeer) {
@@ -431,10 +449,13 @@ class NetSync(private val g: GameView, val client: Boolean, private val ip: Stri
         status = "Подключение к " + ip + " ..."
         val t = Thread {
             try {
-                val s = Socket()
-                s.connect(InetSocketAddress(ip, 47800), 5000)
-                s.tcpNoDelay = true
-val pr = NetPeer(s)
+                val pr: NetPeer // m15f
+                if (online) pr = Online.guestPeer() else {
+                    val s = Socket()
+                    s.connect(InetSocketAddress(ip, 47800), 5000)
+                    s.tcpNoDelay = true
+                    pr = NetPeer(s)
+                }
                 me = pr
                 pr.startWriter()
                 val bo = ByteArrayOutputStream()

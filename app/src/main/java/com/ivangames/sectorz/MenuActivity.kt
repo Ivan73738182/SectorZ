@@ -14,9 +14,10 @@ class MenuActivity : Activity() {
         super.onCreate(savedInstanceState)
         Snd.init(applicationContext)
         v = MenuView(this) { mode, skin ->
-            if (mode == 99) askName() else if (mode == 3) askIp(skin) else start(mode % 10, skin, "", mode / 10)
+            if (mode == 99) askName() else if (mode == 98) startOnline(skin) else if (mode == 3) askIp(skin) else start(mode % 10, skin, "", mode / 10)
         }
         setContentView(v)
+        Online.wake() // m15n
         hideBars()
     }
 
@@ -25,6 +26,10 @@ class MenuActivity : Activity() {
             Intent(this, GameActivity::class.java)
                 .putExtra("mode", mode).putExtra("skin", skin).putExtra("ip", ip).putExtra("gm", gm)
         )
+    }
+
+    private fun startOnline(skin: Int) {
+        start(if (Online.host) 2 else 3, skin, "online", Online.mode)
     }
 
     private fun askName() {

@@ -25,7 +25,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private val walkers = ArrayList<Walker>()
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rf = RectF()
-    private val btn = Array(3) { RectF() }
+    private val btn = Array(4) { RectF() } // m15g
     private val cards = Array(4) { RectF() }
     private var skinPage = if (skin >= 4) 1 else 0 // m13s1
     private val pgBtn = RectF()
@@ -37,8 +37,8 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private val stBtn = Array(3) { RectF() }
     private val mm = Array(4) { RectF() } // m14u
     private var vig: Paint? = null
-    private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ")
-    private val subs = arrayOf("режимы: свободный, волны, PVP", "по Wi-Fi: до 4 игроков", "")
+    private val labels = arrayOf("ИГРАТЬ", "МУЛЬТИПЛЕЕР", "НАСТРОЙКИ", "ОНЛАЙН") // m15o
+    private val subs = arrayOf("режимы: свободный, волны, PVP", "по Wi-Fi: до 4 игроков", "", "через интернет, подбор 20 секунд") // m15p
 
     private fun initWalkers(w: Float, h: Float) {
         val rd = 100f * d
@@ -142,7 +142,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         }.also { vig = it }
         c.drawRect(0f, 0f, w, h, v)
 
-        if (screen == 0) { drawMain(c, w, h); drawMedalChip(c, w, h) } else if (screen == 4) drawMedals(c, w, h) else if (screen == 1) drawSettings2(c, w, h) else if (screen == 3) drawModes(c, w, h) else drawMulti(c, w, h)
+        if (screen == 0) { drawMain(c, w, h); drawMedalChip(c, w, h) } else if (screen == 4) drawMedals(c, w, h) else if (screen == 1) drawSettings2(c, w, h) else if (screen == 3) drawModes(c, w, h) else if (screen == 5) drawSearch(c, w, h) else drawMulti(c, w, h)
     }
 
     private fun drawMain(c: Canvas, w: Float, h: Float) {
@@ -154,10 +154,10 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         txt(c, "Выживи в заброшенном городе", cx, h * 0.19f + 28f * d, 15f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
 
         val bw = min(w * 0.38f, 420f * d)
-        val bh = min(68f * d, h * 0.16f)
-        val gap = min(14f * d, h * 0.025f)
+        val bh = min(60f * d, h * 0.125f) // m15h
+        val gap = min(12f * d, h * 0.02f)
         var y = h * 0.33f
-        for (i in 0..2) {
+        for (i in 0..3) {
             btn[i].set(cx - bw / 2f, y, cx + bw / 2f, y + bh)
             drawButton(c, btn[i], labels[i], subs[i], pressed == i)
             y += bh + gap
@@ -214,7 +214,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     }
 
     private fun hit(x: Float, y: Float): Int {
-        if (screen == 4) return if (backBtn.contains(x, y)) 10 else -1
+        if (screen == 4 || screen == 5) return if (backBtn.contains(x, y)) 10 else -1 // m15j
         if (screen == 3) {
             for (i in 0..(if (pendKind == 2) 3 else 2)) if (mm[i].contains(x, y)) return 20 + i // m14v
             return if (backBtn.contains(x, y)) 10 else -1
@@ -229,7 +229,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
             for (i in 0..2) if (stBtn[i].contains(x, y)) return 40 + i
             return if (backBtn.contains(x, y)) 10 else -1
         }
-        for (i in 0..2) if (btn[i].contains(x, y)) return i
+        for (i in 0..3) if (btn[i].contains(x, y)) return i // m15i
         if (nameBtn.contains(x, y)) return 30
         if (medalR.contains(x, y)) return 31
         if (pgBtn.contains(x, y)) return 50
@@ -244,6 +244,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     private fun click(id: Int) {
         Snd.play(Snd.CLICK, 1f)
         if (id == 0) { pendKind = 0; screen = 3 }
+        else if (id == 3) { save(); screen = 5; Online.find() } // m15k
         else if (id in 20..23) { save(); onPlay(pendKind + 10 * (id - 20), skin) }
         else if (id == 1) screen = 2
         else if (id == 11) { pendKind = 2; screen = 3 }
@@ -257,7 +258,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         else if (id == 2) screen = 1
         else if (id == 50) skinPage = 1 - skinPage
         else if (id in 4..7) { skin = skinPage * 4 + (id - 4); save() }
-        else if (id == 10) screen = 0
+        else if (id == 10) { screen = 0; if (!Online.inGame) Online.cancel() } // m15l
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -274,7 +275,7 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
     }
 
     fun back(): Boolean {
-        if (screen != 0) { screen = 0; return true }
+        if (screen != 0) { if (screen == 5 && !Online.inGame) Online.cancel(); screen = 0; return true } // m15m
         return false
     }
 
@@ -320,6 +321,25 @@ class MenuView(ctx: Context, private val onPlay: (Int, Int) -> Unit) : View(ctx)
         drawButton(c, backBtn, "НАЗАД", "", pressed == 10)
     }
 
+
+    private fun drawSearch(c: Canvas, w: Float, h: Float) {
+        fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
+        txt(c, "ОНЛАЙН", w / 2f, h * 0.2f, 34f * d, 0xFFE53935.toInt(), Paint.Align.CENTER)
+        val dots = ".".repeat(((time * 2f).toInt()) % 4)
+        txt(c, "Подбор игроков" + dots, w / 2f, h * 0.32f, 20f * d, 0xFFFFFFFF.toInt(), Paint.Align.CENTER)
+        txt(c, Online.count.toString() + " / 4", w / 2f, h * 0.5f, 56f * d, 0xFFFFCA28.toInt(), Paint.Align.CENTER)
+        txt(c, "До старта: " + Online.left + " с   (минимум 2 игрока)", w / 2f, h * 0.58f, 14f * d, 0xFFB0BEC5.toInt(), Paint.Align.CENTER)
+        txt(c, Online.status, w / 2f, h * 0.65f, 13f * d, 0xFF80D8FF.toInt(), Paint.Align.CENTER)
+        val bw = min(w * 0.4f, 320f * d)
+        val bh = min(56f * d, h * 0.12f)
+        backBtn.set(w / 2f - bw / 2f, h * 0.74f, w / 2f + bw / 2f, h * 0.74f + bh)
+        drawButton(c, backBtn, "ОТМЕНА", "", pressed == 10)
+        if (Online.started) {
+            Online.started = false
+            screen = 0
+            onPlay(98, skin)
+        }
+    }
 
     private fun drawModes(c: Canvas, w: Float, h: Float) {
         fr(c, 0f, 0f, w, h, 0xCC000000.toInt())
