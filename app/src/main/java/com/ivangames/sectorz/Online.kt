@@ -59,8 +59,9 @@ class Pipe(private val sender: (ByteArray) -> Unit) {
                 cur = c
                 pos = 0
             }
-            val n = minOf(len, c.size - pos)
-            System.arraycopy(c, pos, b, off, n)
+            val cc: ByteArray = c ?: return -1
+            val n = minOf(len, cc.size - pos)
+            System.arraycopy(cc, pos, b, off, n)
             pos += n
             return n
         }
